@@ -99,6 +99,8 @@ def test_deep_prompt_requests_inner_attitude_instead_of_analysis_report():
     assert outcome.value.impression == "我不想再理他了。"
     assert "我不想再理他了" in captured["system_prompt"]
     assert "不要写成“我觉得互动偏单向”" in captured["system_prompt"]
+    assert "必须使用 revise 并给出非空的第一人称感受" in captured["system_prompt"]
+    assert "不得用“还在观察关系事实”作为继续留空感受的理由" in captured["system_prompt"]
 
 
 def test_invalid_enum_and_empty_result_are_visible_invalid_outcomes():

@@ -52,6 +52,7 @@ from .core import (
     apply_deep_evidence,
     apply_light_evidence,
     apply_severe_evidence,
+    fallback_impression,
 )
 from .llm import (
     COMPANION_PROTOCOL_VERSION,
@@ -868,6 +869,8 @@ class CompanionLiteV2Plugin(Star):
                     state.familiarity = max(state.familiarity, 35.0)
                     state.trust = max(state.trust, 60.0)
                     state.affinity = max(state.affinity, 15.0)
+                if not state.impression:
+                    state.impression = fallback_impression(state)
                 self._save_state(state)
         yield event.plain_result("行，这个位置给你了。只有一个——以后怎么待我，自己掂量。")
 

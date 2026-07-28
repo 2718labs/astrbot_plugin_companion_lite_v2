@@ -75,6 +75,9 @@ def test_premature_intimacy_only_lowers_affinity_once_per_window():
         affinity_change="strong_down",
     )
     first = apply_deep_evidence(state, evidence, 6)
+    assert state.light_guidance
+    assert state.light_guidance.reminder == "keep_distance"
+    assert state.light_guidance.active_for(7)
     second = apply_deep_evidence(state, evidence, 6)
     assert first["pattern"] == "premature_intimacy"
     assert first["familiarity_delta"] == 2
@@ -87,6 +90,7 @@ def test_premature_intimacy_only_lowers_affinity_once_per_window():
     assert state.affinity == -2
     assert state.posture == "normal"
     assert state.active_issue is None
+    assert state.light_guidance is None
 
 
 def test_bonded_or_familiar_relationship_rejects_premature_signal():
@@ -94,15 +98,25 @@ def test_bonded_or_familiar_relationship_rejects_premature_signal():
         pattern="premature_intimacy",
         confidence="high",
         affinity_change="down",
+        impression_operation="revise",
+        impression="我不想让关系被提前推近。",
     )
-    bonded = RelationshipState("u")
+    bonded = RelationshipState("u", impression="我接受当前正式关系。")
     bonded_decision = apply_deep_evidence(bonded, evidence, 6, is_bonded=True)
-    familiar = RelationshipState("u", familiarity=35)
+    familiar = RelationshipState(
+        "u",
+        familiarity=35,
+        impression="我和对方已经自然熟悉。",
+    )
     familiar_decision = apply_deep_evidence(familiar, evidence, 6)
     assert bonded_decision["pattern"] == "none"
     assert bonded.affinity == 0
+    assert bonded.impression == "我接受当前正式关系。"
+    assert bonded_decision["impression_source"] == "ignored_rejected_pattern"
     assert familiar_decision["pattern"] == "none"
     assert familiar.affinity == 0
+    assert familiar.impression == "我和对方已经自然熟悉。"
+    assert familiar_decision["impression_source"] == "ignored_rejected_pattern"
 
 
 def test_first_six_round_one_sided_change_is_fixed_by_code():
@@ -126,7 +140,93 @@ def test_first_six_round_one_sided_change_is_fixed_by_code():
     assert state.active_issue
     assert state.active_issue.kind == "one_sided"
     assert state.active_issue.phase == "noticed"
+    assert state.impression == "我已经不想继续这样单方面投入"
     assert decision["trust_delta"] == -2
+    assert decision["impression_source"] == "fallback"
+
+
+def test_deep_negative_change_prefers_model_feeling_and_falls_back_when_missing():
+    model = RelationshipState("u")
+    decision = apply_deep_evidence(
+        model,
+        DeepEvidence(
+            pattern="one_sided",
+            confidence="high",
+            impression_operation="revise",
+            impression="我不想再替他完成这些任务。",
+        ),
+        6,
+    )
+    assert model.impression == "我不想再替他完成这些任务。"
+    assert decision["impression_source"] == "model"
+
+    missing = RelationshipState("u", impression="我原本还愿意观察。")
+    decision = apply_deep_evidence(
+        missing,
+        DeepEvidence(
+            pattern="one_sided",
+            confidence="high",
+            impression_operation="keep",
+            impression="",
+        ),
+        6,
+    )
+    assert missing.impression == "我已经不想继续这样单方面投入"
+    assert decision["impression_source"] == "fallback"
+
+    sanitized = RelationshipState("u")
+    decision = apply_deep_evidence(
+        sanitized,
+        DeepEvidence(
+            pattern="boundary_violation",
+            confidence="high",
+            agent_expression="present",
+            user_response_to_expression="pressed",
+            impression_operation="revise",
+            impression="",
+        ),
+        6,
+    )
+    assert sanitized.impression == "我不接受对方继续越过已经说清的边界"
+    assert decision["impression_source"] == "fallback"
+
+
+def test_low_confidence_degradation_does_not_create_issue_or_feeling():
+    state = RelationshipState("u")
+    decision = apply_deep_evidence(
+        state,
+        DeepEvidence(
+            pattern="degradation",
+            confidence="low",
+            impression_operation="revise",
+            impression="我受到了贬低。",
+        ),
+        6,
+    )
+    assert decision["submitted_pattern"] == "degradation"
+    assert decision["pattern"] == "none"
+    assert decision["pattern_rejected"] is True
+    assert decision["impression_source"] == "ignored_rejected_pattern"
+    assert state.active_issue is None
+    assert state.posture == "normal"
+    assert state.impression == ""
+
+
+def test_deep_positive_affinity_cannot_leave_first_person_feeling_empty():
+    state = RelationshipState("u", familiarity=10, trust=60, affinity=13)
+    decision = apply_deep_evidence(
+        state,
+        DeepEvidence(
+            pattern="none",
+            confidence="high",
+            affinity_change="up_small",
+            impression_operation="keep",
+        ),
+        6,
+    )
+    assert state.affinity == 15
+    assert state.impression == "我已经开始喜欢和对方相处"
+    assert decision["impression_source"] == "fallback"
 
 
 def test_ignored_expression_requires_visible_agent_expression():
@@ -182,6 +282,7 @@ def test_high_confidence_severe_event_can_jump_and_medium_cannot():
     assert state.posture == "disengaged"
     assert state.trust == 40
     assert state.affinity == -10
+    assert state.impression == "我不接受对方用强迫或威胁要求我服务"
 
 
 def test_unrepaired_issue_blocks_positive_trust_and_affinity():
@@ -228,12 +329,14 @@ def test_repair_needs_two_rounds_and_opposite_behavior_before_clear():
     assert state.active_issue
     assert state.active_issue.phase == "repairing"
     assert state.posture == "reserved"
+    assert state.impression == "我愿意观察这次修复，但还没有恢复原来的投入"
     assert state.trust == 42
     assert state.affinity == -8
 
     apply_deep_evidence(state, repair, 12)
     assert state.active_issue is None
     assert state.posture == "normal"
+    assert state.impression == "我还有些不满，但愿意重新观察对方"
     assert state.trust == 44
     assert state.affinity == -6
 

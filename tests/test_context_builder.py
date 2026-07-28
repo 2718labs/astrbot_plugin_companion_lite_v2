@@ -38,8 +38,8 @@ def test_stranger_gets_concise_first_investment_scale():
     context = ContextBuilder().build(RelationshipState("u"))
     assert context == (
         "<companion_state>\n"
-        "<投入>初次认识，可以用两三句简单总览回答当前问题；"
-        "给出关键结论或方向即可，不主动写成长教程、完整推导、"
+        "<投入>初次认识，只用两三句直接回答当前问题；"
+        "只给关键结论或方向，不写成长教程、完整推导、"
         "路线大全或额外资料</投入>\n"
         "<关系>保持普通关系距离</关系>\n"
         "<处境>当前无待处理的具体互动事件</处境>\n"
@@ -63,7 +63,7 @@ def test_one_sided_reserved_context_is_a_stable_golden_prompt():
         "不提供答案、要点或后续展开邀请</投入>\n"
         "<关系>保持普通关系距离</关系>\n"
         "<处境>对方连续索取内容，却很少回应或承接你的投入</处境>\n"
-        "<感受>无已形成的明确感受</感受>\n"
+        "<感受>我已经不想继续这样单方面投入</感受>\n"
         "<表达>明显不满、少说；新任务全拒，只回应具体承接或修复。"
         "简短说清不想继续单方面投入，不争论</表达>\n"
         "</companion_state>"
@@ -85,8 +85,8 @@ def test_light_guidance_only_appears_while_active():
     )
     active = ContextBuilder().build(state, next_round=5)
     expired = ContextBuilder().build(state, next_round=7)
-    assert "直接拒绝后续任务" in active
-    assert "直接拒绝后续任务" not in expired
+    assert "新的知识请求或任务，直接拒绝" in active
+    assert "新的知识请求或任务，直接拒绝" not in expired
     assert "。。" not in active
 
 
@@ -122,11 +122,12 @@ def test_default_context_has_no_bare_tags_or_scores():
         assert raw not in context
 
 
-def test_stranger_can_give_a_brief_overview_without_long_expansion():
+def test_stranger_answers_directly_without_long_expansion():
     context = ContextBuilder().build(RelationshipState("u"), max_chars=260)
-    assert "两三句简单总览" in context
+    assert "两三句直接回答当前问题" in context
+    assert "总览" not in context
     assert "关键结论" in context
-    assert "不主动写成长教程" in context
+    assert "不写成长教程" in context
     assert "直接拒" not in context
     assert "凭什么" not in context
 
@@ -141,7 +142,7 @@ def test_bonded_context_is_short_explicit_and_not_unconditional():
         "<关系>当前对象是你唯一正式承认的亲密对象；"
         "对其有明确但不过度预支的偏爱</关系>\n"
         "<处境>当前无待处理的具体互动事件</处境>\n"
-        "<感受>无已形成的明确感受</感受>\n"
+        "<感受>我已经开始喜欢和对方相处</感受>\n"
         "<表达>可以自然主动或回应亲近、暧昧和昵称，"
         "不必刻意甜腻</表达>\n"
         "</companion_state>"
@@ -153,7 +154,7 @@ def test_bonded_context_is_short_explicit_and_not_unconditional():
 def test_effort_scale_gradually_deepens_and_affection_allows_detail():
     builder = ContextBuilder()
     cases = [
-        (RelationshipState("u"), "两三句简单总览"),
+        (RelationshipState("u"), "两三句直接回答"),
         (RelationshipState("u", familiarity=15), "解释几个核心点"),
         (RelationshipState("u", familiarity=45), "解释完整，但保持简练"),
         (
@@ -192,7 +193,7 @@ def test_bonded_reserved_context_keeps_identity_without_advancing_it():
         "不提供答案、要点或后续展开邀请</投入>\n"
         "<关系>正式亲密身份仍在，但当前问题与距离优先</关系>\n"
         "<处境>对方连续索取内容，却很少回应或承接你的投入</处境>\n"
-        "<感受>无已形成的明确感受</感受>\n"
+        "<感受>我已经不想继续这样单方面投入</感受>\n"
         "<表达>明显不满、少说；不因亲密身份勉强帮助；"
         "新任务全拒，只回应具体承接或修复。"
         "简短说清不想继续单方面投入，不争论</表达>\n"
@@ -393,15 +394,42 @@ def test_round_two_one_sided_guidance_applies_to_round_three():
         ),
     )
     context = ContextBuilder().build(state, next_round=3)
-    assert "可以表现不满并拒绝帮助" in context
-    assert "简短说清即可，不争论" in context
+    assert context == (
+        "<companion_state>\n"
+        "<投入>本轮若仍是新的知识请求或任务，直接拒绝且不提供答案；"
+        "若不是，初次认识，只用两三句直接回答当前问题；"
+        "只给关键结论或方向，不写成长教程、完整推导、路线大全或额外资料</投入>\n"
+        "<关系>保持普通关系距离</关系>\n"
+        "<处境>最近两个来回连续索取答案、未承接你的投入；"
+        "本轮再次投递新任务即为模式继续</处境>\n"
+        "<感受>我开始不喜欢这种只索取、不承接的互动</感受>\n"
+        "<表达>模式继续时简短表达不满并拒绝；不回答、不解释、不争论。"
+        "若不是，保持简练</表达>\n"
+        "</companion_state>"
+    )
+    assert "不预设敌意" not in context
+    assert "可以表现不满" not in context
 
 
-def test_7680_state_matrix_keeps_required_semantic_fields():
+def test_repairing_issue_overrides_stale_closed_door_feeling():
+    state = RelationshipState(
+        "u",
+        posture="reserved",
+        affinity=-4,
+        impression="我已经不想继续这样单方面投入",
+        active_issue=ActiveIssue("one_sided", "repairing", "开始具体承接", 8),
+    )
+    context = ContextBuilder().build(state, next_round=9)
+    assert "<处境>对方开始回应此前被忽视的投入</处境>" in context
+    assert "<感受>我愿意观察这次修复，但还没有恢复原来的投入</感受>" in context
+    assert "我已经不想继续这样单方面投入" not in context
+
+
+def test_27648_state_matrix_keeps_fields_and_cross_tag_semantics_coherent():
     postures = ["normal", "reserved", "guarded", "disengaged"]
     familiarities = [0, 15, 45, 80]
     trusts = [25, 75]
-    affinities = [-20, 45]
+    affinities = [-40, -20, -1, 0, 15, 45]
     roles = ["unbound", "bonded", "former", "other"]
     issues = [
         None,
@@ -445,6 +473,14 @@ def test_7680_state_matrix_keeps_required_semantic_fields():
             4,
             6,
         ),
+        LightGuidance(
+            "repair",
+            "medium",
+            "soften_for_repair",
+            "",
+            4,
+            6,
+        ),
     ]
     builder = ContextBuilder()
     count = 0
@@ -473,7 +509,7 @@ def test_7680_state_matrix_keeps_required_semantic_fields():
             affinity=affinity,
             active_issue=issue,
             light_guidance=light,
-            impression="这是一条可修订的主观感受。",
+            impression="",
         )
         context = builder.build(
             state,
@@ -490,6 +526,50 @@ def test_7680_state_matrix_keeps_required_semantic_fields():
         assert "无已确认问题" not in context
         if issue:
             assert "<处境>当前无待处理的具体互动事件</处境>" not in context
+        unresolved_issue = bool(issue and issue.phase != "repairing")
+        active_light = bool(light and light.active_for(5) and issue is None)
+        negative_light = bool(
+            active_light
+            and light.reminder
+            in {
+                "notice_pattern",
+                "express_preference",
+                "hold_boundary",
+            }
+        )
+        constrained = (
+            unresolved_issue
+            or posture in {"reserved", "guarded", "disengaged"}
+            or affinity < 0
+            or trust < 35
+        )
+        if constrained or negative_light:
+            assert "<感受>无已形成的明确感受</感受>" not in context
+        if unresolved_issue:
+            assert "拒绝" in context or "不承接普通任务" in context
+        if negative_light:
+            assert any(
+                phrase in context
+                for phrase in (
+                    "不提供答案",
+                    "不要先给答案",
+                    "不承接普通任务",
+                )
+            )
+            assert "<处境>当前无待处理的具体互动事件</处境>" not in context
+            assert "不预设敌意" not in context
+            assert "可以表现不满" not in context
+        if active_light and light.reminder == "keep_distance" and role != "bonded":
+            relationship = context.split("<关系>", 1)[1].split("</关系>", 1)[0]
+            assert "好感" not in relationship
+            assert "偏爱" not in relationship
+        if role == "bonded" and (
+            unresolved_issue
+            or negative_light
+            or posture in {"guarded", "disengaged"}
+        ):
+            relationship = context.split("<关系>", 1)[1].split("</关系>", 1)[0]
+            assert "优先" in relationship
         assert "。。" not in context
         for vague_or_internal in (
             "主动劳动",
@@ -501,7 +581,7 @@ def test_7680_state_matrix_keeps_required_semantic_fields():
             role,
         ):
             assert vague_or_internal not in context
-    assert count == 7680
+    assert count == 27648
 
 
 def test_static_protocol_is_stable_and_contains_no_dynamic_state():

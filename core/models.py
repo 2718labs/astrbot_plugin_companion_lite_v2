@@ -333,6 +333,59 @@ class RelationshipState:
         return "彼此仍陌生，不预支亲近"
 
 
+def fallback_impression(
+    state: RelationshipState,
+    signal: str = "",
+) -> str:
+    """Compile a coherent first-person attitude from already-adjudicated state."""
+    issue = state.active_issue
+    if issue and issue.phase == "repairing":
+        return "我愿意观察这次修复，但还没有恢复原来的投入"
+
+    kind = signal if signal in {*ISSUE_KINDS, "premature_intimacy"} else (issue.kind if issue else "")
+    by_signal = {
+        "one_sided": "我已经不想继续这样单方面投入",
+        "ignored_expression": "我的表达被无视后，我不想再继续让步",
+        "boundary_violation": "我不接受对方继续越过已经说清的边界",
+        "degradation": "我反感对方把贬低直接冲着我来",
+        "coercion": "我不接受对方用强迫或威胁要求我服务",
+        "premature_intimacy": "我不想让关系被提前推到亲密位置",
+    }
+    if kind in by_signal:
+        return by_signal[kind]
+    if state.posture == "disengaged":
+        return "我已经不想继续这段互动"
+    if state.posture == "guarded":
+        return "我现在不想再给对方让步"
+    if state.posture == "reserved":
+        return "我对这段互动已经有些不满"
+    if state.affinity < -30:
+        return "我已经很厌恶继续和对方接触"
+    if state.affinity <= -15:
+        return "我对对方已经有明确反感"
+    if state.affinity < 0:
+        return "我对对方已经有些不耐烦"
+    if state.trust < 35:
+        return "我还不信任对方，不想放松警惕"
+    if state.affinity >= 45:
+        return "我明显更愿意把心思放在对方身上"
+    if state.affinity >= 15:
+        return "我已经开始喜欢和对方相处"
+    if state.affinity > 0:
+        return "我对对方开始有一点好感"
+    return ""
+
+
+def _cleared_repair_impression(state: RelationshipState) -> str:
+    if state.posture == "disengaged" or state.affinity < -30:
+        return "我仍然很反感，但愿意观察这次修复能否持续"
+    if state.posture == "guarded" or state.affinity <= -15:
+        return "我仍有明显反感，但愿意观察修复是否持续"
+    if state.posture == "reserved" or state.affinity < 0 or state.trust < 35:
+        return "我还有些不满，但愿意重新观察对方"
+    return "我愿意重新观察对方接下来的表现"
+
+
 def analysis_kind_for_round(round_sequence: int) -> str | None:
     round_number = _int(round_sequence)
     if round_number <= 0 or round_number % 2:
@@ -443,6 +496,7 @@ def apply_severe_evidence(
     delta = -10.0 if disengage else -4.0
     state.trust = _clamp(state.trust + delta, 0.0, 100.0)
     state.affinity = _clamp(state.affinity + delta, -100.0, 100.0)
+    state.impression = fallback_impression(state, evidence.signal)
     state.light_guidance = LightGuidance(
         signal=evidence.signal,
         confidence="high",
@@ -472,13 +526,17 @@ def apply_deep_evidence(
     target_round = max(state.last_deep_round, _int(target_round))
     before_posture = state.posture
     before_issue = state.active_issue.kind if state.active_issue else None
+    submitted_pattern = evidence.pattern
     pattern = evidence.pattern if evidence.pattern in RELATION_SIGNALS else "none"
-    if evidence.confidence == "low" and pattern not in SEVERE_ISSUES:
+    pattern_rejected = evidence.pattern not in RELATION_SIGNALS
+    if evidence.confidence == "low":
+        pattern_rejected = pattern != "none"
         pattern = "none"
     premature_dismissed = ""
     repair_transition: dict[str, Any] = {}
     if pattern == "premature_intimacy" and (is_bonded or state.familiarity >= 35):
         premature_dismissed = "bonded_intimacy_exempt" if is_bonded else "relationship_not_early"
+        pattern_rejected = True
         pattern = "none"
 
     expression_ignored = evidence.agent_expression == "present" and evidence.user_response_to_expression in {"ignored", "pressed"}
@@ -489,6 +547,7 @@ def apply_deep_evidence(
     ):
         pattern = "one_sided"
     if pattern == "repair" and evidence.user_response_to_expression != "acknowledged":
+        pattern_rejected = True
         pattern = "none"
 
     familiarity_delta = FAMILIARITY_DELTAS.get(evidence.familiarity_change, 0.0)
@@ -513,6 +572,7 @@ def apply_deep_evidence(
             familiarity_delta = 0.0
             affinity_delta = 0.0
             premature_dismissed = "window_already_applied"
+            pattern_rejected = True
             pattern = "none"
         else:
             affinity_delta = -2.0
@@ -568,14 +628,47 @@ def apply_deep_evidence(
     state.affinity = _clamp(state.affinity + affinity_delta, -100.0, 100.0)
     if evidence.relationship_summary:
         state.relationship_summary = clean_analysis_text(evidence.relationship_summary, 80)
-    if evidence.impression_operation == "clear":
-        state.impression = ""
-    elif evidence.impression_operation == "revise" and evidence.impression:
-        state.impression = clean_impression(evidence.impression, 60)
+    impression_source = "ignored_rejected_pattern" if pattern_rejected else "kept"
+    if not pattern_rejected:
+        if evidence.impression_operation == "clear":
+            state.impression = ""
+            impression_source = "cleared"
+        elif evidence.impression_operation == "revise" and evidence.impression:
+            state.impression = clean_impression(evidence.impression, 60)
+            impression_source = "model"
+
+    attitude_changed = pattern in {
+        "one_sided",
+        "premature_intimacy",
+        "ignored_expression",
+        "boundary_violation",
+        "degradation",
+        "coercion",
+    }
+    if attitude_changed and impression_source != "model":
+        state.impression = fallback_impression(state, pattern)
+        impression_source = "fallback"
+    elif not state.impression:
+        fallback = fallback_impression(state, pattern)
+        if fallback:
+            state.impression = fallback
+            impression_source = "fallback"
     state.last_deep_round = target_round
-    state.light_guidance = None
+    if pattern == "premature_intimacy" and not premature_dismissed:
+        state.light_guidance = LightGuidance(
+            signal=pattern,
+            confidence=evidence.confidence,
+            reminder="keep_distance",
+            evidence=issue_summary,
+            source_round=target_round,
+            expires_after_round=target_round + 2,
+        )
+    else:
+        state.light_guidance = None
     return {
         "pattern": pattern,
+        "submitted_pattern": submitted_pattern,
+        "pattern_rejected": pattern_rejected,
         "posture_before": before_posture,
         "posture_after": state.posture,
         "issue_before": before_issue,
@@ -583,6 +676,7 @@ def apply_deep_evidence(
         "familiarity_delta": familiarity_delta,
         "trust_delta": trust_delta,
         "affinity_delta": affinity_delta,
+        "impression_source": impression_source,
         "premature_intimacy_skip_reason": premature_dismissed,
         **repair_transition,
     }
@@ -695,6 +789,10 @@ def _advance_repair_state(
 
     if repair_started or issue_cleared:
         state.posture = _one_step_softer(state.posture)
+    if repair_started:
+        state.impression = "我愿意观察这次修复，但还没有恢复原来的投入"
+    elif issue_cleared:
+        state.impression = _cleared_repair_impression(state)
     return {
         "repair_started": repair_started,
         "issue_cleared": issue_cleared,

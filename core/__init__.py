@@ -9,6 +9,7 @@ from .models import (
     apply_deep_evidence,
     apply_light_evidence,
     apply_severe_evidence,
+    fallback_impression,
 )
 from .storage import Storage
 
@@ -24,4 +25,5 @@ __all__ = [
     "apply_deep_evidence",
     "apply_light_evidence",
     "apply_severe_evidence",
+    "fallback_impression",
 ]

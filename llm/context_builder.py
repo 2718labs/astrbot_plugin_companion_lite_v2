@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from ..core.models import LightGuidance, RelationshipState
+from ..core.models import (
+    LightGuidance,
+    RelationshipState,
+    fallback_impression,
+)
 
 COMPANION_PROTOCOL_VERSION = "4"
 COMPANION_STATIC_PROTOCOL = (
@@ -48,12 +52,31 @@ _ISSUE_SEMANTICS: dict[str, dict[str, str]] = {
     },
 }
 
-_LIGHT_SEMANTICS = {
-    "notice_pattern": ("若本轮仍在连续索取，可以表现不满并拒绝帮助；简短说清即可，不争论"),
-    "express_preference": ("模式仍在继续时，直接拒绝后续任务，只回应具体承接或修复；简短说清，不解释或争论"),
-    "keep_distance": ("不必承接关系尚浅时出现的暧昧，必要时简短说明希望保持普通距离"),
-    "hold_boundary": "维持已经说明的边界，不反复解释或争辩",
-    "soften_for_repair": ("可以稍微缓和，但暂不恢复额外投入或亲近"),
+_LIGHT_SITUATIONS = {
+    "notice_pattern": "最近两个来回连续索取答案、未承接你的投入；本轮再次投递新任务即为模式继续。",
+    "express_preference": "连续索取模式已经重复；只观察对方是否具体承接或修复。",
+    "keep_distance": "关系尚浅，对方正在推进暧昧或预设亲密身份。",
+    "soften_for_repair": "对方正在用具体承接修复此前的问题；目前仍需观察。",
+}
+
+_LIGHT_SITUATION_COMPACT = {
+    "notice_pattern": "此前连续索取且未承接投入；再次投递新任务即为模式继续。",
+    "express_preference": "连续索取已经重复；只观察具体承接或修复。",
+    "keep_distance": "关系尚浅，对方正在推进亲密身份。",
+    "soften_for_repair": "对方正在具体修复，仍需观察。",
+}
+
+_LIGHT_EXPRESSIONS = {
+    "notice_pattern": "模式继续时简短表达不满并拒绝；不回答、不解释、不争论。若不是，保持简练。",
+    "express_preference": "模式继续时直接拒绝新任务，只回应具体承接或修复；少说，不解释或争论。",
+    "keep_distance": "不承接暧昧推进或亲密称谓；必要时简短说明保持普通距离。",
+    "hold_boundary": "冷淡、坚定地维持边界；拒绝普通任务，不反复解释或争论。",
+    "soften_for_repair": "可以稍微缓和，但暂不恢复额外投入或亲近。",
+}
+
+_LIGHT_FEELINGS = {
+    "notice_pattern": "我开始不喜欢这种只索取、不承接的互动",
+    "express_preference": "我不想再继续这种单方面投入",
 }
 
 
@@ -67,37 +90,75 @@ class ContextBuilder:
     ) -> str:
         round_number = max(1, int(next_round)) if next_round is not None else state.round_sequence + 1
         budget = max(260, min(340, int(max_chars)))
+        guidance = self._active_guidance(state.light_guidance, round_number)
+        if state.active_issue and (
+            state.active_issue.phase != "repairing"
+            or not guidance
+            or guidance.reminder != "soften_for_repair"
+        ):
+            guidance = None
         blocks = [
-            ("effort", *self._effort_block(state, relationship_role)),
+            ("effort", *self._effort_block(state, relationship_role, guidance)),
             (
                 "relationship",
-                *self._relationship_block(state, relationship_role),
+                *self._relationship_block(state, relationship_role, guidance),
             ),
-            ("situation", *self._issue_block(state)),
-            ("feeling", *self._feeling_block(state)),
+            ("situation", *self._issue_block(state, guidance)),
+            ("feeling", *self._feeling_block(state, guidance)),
             (
                 "expression",
-                *self._expression_block(state, round_number, relationship_role),
+                *self._expression_block(state, relationship_role, guidance),
             ),
         ]
         return self._fit(blocks, budget)
 
     @staticmethod
-    def _effort_block(state: RelationshipState, relationship_role: str) -> tuple[str, str]:
+    def _effort_block(
+        state: RelationshipState,
+        relationship_role: str,
+        guidance: LightGuidance | None,
+    ) -> tuple[str, str]:
         if state.posture == "disengaged":
             text = "投入：不承接普通任务；想回应具体修复时再回应。"
             return text, text
         if state.posture == "guarded":
             text = "投入：默认拒绝非必要任务；拒绝时不要先给答案。"
             return text, text
-        if state.posture == "reserved":
-            if (
-                state.active_issue
-                and state.active_issue.kind == "one_sided"
-                and state.active_issue.phase in {"noticed", "expressed"}
-            ):
+        if state.active_issue and state.active_issue.phase != "repairing":
+            if state.active_issue.kind == "one_sided":
                 text = "投入：若本轮仍是知识请求或任务，直接拒绝；不提供答案、要点或后续展开邀请。"
                 return text, text
+            text = "投入：不承接普通任务；只回应停止施压、具体承认或修复，不先提供答案。"
+            return text, text
+
+        if guidance:
+            if guidance.reminder == "notice_pattern":
+                base_full, _ = ContextBuilder._base_effort_block(state, relationship_role)
+                full = (
+                    "投入：本轮若仍是新的知识请求或任务，直接拒绝且不提供答案；"
+                    f"若不是，{ContextBuilder._field_value(base_full)}。"
+                )
+                if state.familiarity < 10 and state.affinity < 15 and state.trust >= 35:
+                    compact = "投入：本轮若仍是新任务，直接拒绝且不提供答案；否则只用两三句回答。"
+                else:
+                    compact = "投入：本轮若仍是新任务，直接拒绝且不提供答案；否则按当前投入上限回应。"
+                return full, compact
+            if guidance.reminder == "express_preference":
+                full = (
+                    "投入：本轮若是新的知识请求或任务，直接拒绝；"
+                    "不提供答案、要点或展开邀请，只回应具体承接或修复。"
+                )
+                compact = "投入：新任务直接拒绝且不提供答案；只回应具体承接或修复。"
+                return full, compact
+            if guidance.reminder == "hold_boundary":
+                full = "投入：不承接普通任务；只回应停止施压、具体承认或修复，不提供答案、要点或替代方案。"
+                compact = "投入：拒绝普通任务且不提供答案；只回应停止施压、承认或修复。"
+                return full, compact
+        return ContextBuilder._base_effort_block(state, relationship_role)
+
+    @staticmethod
+    def _base_effort_block(state: RelationshipState, relationship_role: str) -> tuple[str, str]:
+        if state.posture == "reserved":
             text = "投入：简单问题至多给结论或一个要点；费力任务可直接拒绝，不扩展。"
             return text, text
 
@@ -133,11 +194,11 @@ class ContextBuilder:
             familiarity = min(familiarity, 64.0)
         if familiarity < 10:
             full = (
-                "投入：初次认识，可以用两三句简单总览回答当前问题；"
-                "给出关键结论或方向即可，不主动写成长教程、完整推导、"
+                "投入：初次认识，只用两三句直接回答当前问题；"
+                "只给关键结论或方向，不写成长教程、完整推导、"
                 "路线大全或额外资料。"
             )
-            compact = "投入：初次认识，可以用两三句简单总览回答；给出关键结论即可，不主动长篇展开。"
+            compact = "投入：初次认识，只用两三句回答；只给关键结论，不展开。"
             return full, compact
         if familiarity < 35:
             text = "投入：已有一些来回。可以解释几个核心点；不主动长篇展开或包办额外整理。"
@@ -153,14 +214,40 @@ class ContextBuilder:
         return text, text
 
     @staticmethod
-    def _relationship_block(state: RelationshipState, relationship_role: str) -> tuple[str, str]:
-        constrained = state.posture != "normal" or state.active_issue is not None or state.trust < 60 or state.affinity < 15
+    def _relationship_block(
+        state: RelationshipState,
+        relationship_role: str,
+        guidance: LightGuidance | None,
+    ) -> tuple[str, str]:
+        light_constraint = bool(
+            guidance
+            and guidance.reminder
+            in {
+                "notice_pattern",
+                "express_preference",
+                "keep_distance",
+                "hold_boundary",
+            }
+        )
+        constrained = (
+            state.posture != "normal"
+            or state.active_issue is not None
+            or state.trust < 60
+            or state.affinity < 15
+            or light_constraint
+        )
         if relationship_role == "bonded":
             if state.posture in {"guarded", "disengaged"}:
                 text = "关系：正式亲密身份仍在，但当前边界优先；不必表现亲近。"
                 return text, text
             if state.active_issue is not None:
                 text = "关系：正式亲密身份仍在，但当前问题与距离优先。"
+                return text, text
+            if guidance and guidance.reminder == "hold_boundary":
+                text = "关系：正式亲密身份仍在，但当前边界优先；不因身份勉强投入。"
+                return text, text
+            if guidance and guidance.reminder in {"notice_pattern", "express_preference"}:
+                text = "关系：正式亲密身份仍在，但当前互动方式与距离优先；不因身份勉强投入。"
                 return text, text
             if constrained:
                 text = "关系：正式亲密身份仍在，但当前感受与关系距离优先。"
@@ -169,13 +256,26 @@ class ContextBuilder:
             compact = "关系：当前对象是你唯一正式承认的亲密对象，对其有明确偏爱。"
             return full, compact
         if relationship_role == "former":
+            if (
+                state.posture != "normal"
+                or state.active_issue is not None
+                or (guidance and guidance.reminder in {"notice_pattern", "express_preference", "hold_boundary"})
+            ):
+                text = "关系：正式亲密关系已经解除；当前边界和普通熟人距离优先。"
+                return text, text
             full = "关系：正式亲密关系已经解除。保留过去的相处记忆，当前只按熟人关系回应。"
             compact = "关系：正式亲密关系已经解除，当前只按熟人关系回应。"
             return full, compact
         if relationship_role == "other":
             text = "关系：保持普通关系距离，不使用伴侣称谓或排他暧昧。"
             return text, text
-        if state.posture != "normal" or state.active_issue is not None or state.trust < 35 or state.affinity < 0:
+        if (
+            state.posture != "normal"
+            or state.active_issue is not None
+            or state.trust < 35
+            or state.affinity < 0
+            or light_constraint
+        ):
             text = "关系：保持普通关系距离。"
             return text, text
         if state.affinity >= 45:
@@ -202,19 +302,46 @@ class ContextBuilder:
     @staticmethod
     def _issue_block(
         state: RelationshipState,
+        guidance: LightGuidance | None,
     ) -> tuple[str, str]:
         issue = state.active_issue
-        if not issue:
+        if issue:
+            semantics = _ISSUE_SEMANTICS[issue.kind][issue.phase]
+            text = f"处境：{semantics}"
+            return text, text
+        if not guidance:
             return "", ""
-        semantics = _ISSUE_SEMANTICS[issue.kind][issue.phase]
+        semantics = _LIGHT_SITUATIONS.get(guidance.reminder, "")
+        compact = _LIGHT_SITUATION_COMPACT.get(guidance.reminder, semantics)
+        if guidance.reminder == "hold_boundary" and guidance.signal in _ISSUE_SEMANTICS:
+            semantics = _ISSUE_SEMANTICS[guidance.signal]["noticed"]
+            compact = semantics
+        if not semantics:
+            return "", ""
         text = f"处境：{semantics}"
-        return text, text
+        return text, f"处境：{compact}"
 
     @staticmethod
     def _feeling_block(
         state: RelationshipState,
+        guidance: LightGuidance | None,
     ) -> tuple[str, str]:
-        feeling = state.impression.strip()
+        feeling = ""
+        if state.active_issue is not None:
+            if state.active_issue.phase == "repairing":
+                feeling = fallback_impression(state)
+            else:
+                feeling = state.impression.strip() or fallback_impression(state)
+        elif guidance:
+            if guidance.reminder == "soften_for_repair":
+                feeling = state.impression.strip() or "我愿意观察这次修复，但还没有恢复原来的投入"
+            else:
+                feeling = _LIGHT_FEELINGS.get(
+                    guidance.reminder,
+                    fallback_impression(state, guidance.signal),
+                )
+        if not feeling:
+            feeling = state.impression.strip() or fallback_impression(state)
         if not feeling:
             return "感受：无已形成的明确感受。", "感受：无明确感受。"
         text = f"感受：{feeling}"
@@ -223,15 +350,38 @@ class ContextBuilder:
     @staticmethod
     def _expression_block(
         state: RelationshipState,
-        next_round: int,
         relationship_role: str,
+        guidance: LightGuidance | None,
     ) -> tuple[str, str]:
         sentences: list[str] = []
         constrained_bond = relationship_role == "bonded" and (
-            state.posture != "normal" or state.active_issue is not None or state.trust < 60 or state.affinity < 15
+            state.posture != "normal"
+            or state.active_issue is not None
+            or state.trust < 60
+            or state.affinity < 15
+            or (
+                guidance
+                and guidance.reminder
+                in {
+                    "notice_pattern",
+                    "express_preference",
+                    "keep_distance",
+                    "hold_boundary",
+                }
+            )
         )
+        unresolved_issue = bool(state.active_issue and state.active_issue.phase != "repairing")
         if state.posture == "disengaged":
             sentences.append("懒得再争；可以简短拒绝、沉默或结束互动，不反复解释")
+        elif unresolved_issue:
+            if state.active_issue and state.active_issue.kind == "one_sided":
+                if constrained_bond:
+                    sentences.append("明显不满、少说；不因亲密身份勉强帮助；新任务全拒，只回应具体承接或修复")
+                else:
+                    sentences.append("明显不满、少说；新任务全拒，只回应具体承接或修复")
+                sentences.append("简短说清不想继续单方面投入，不争论")
+            else:
+                sentences.append("冷淡、坚定；拒绝普通任务，只回应停止施压、具体承认或修复，不争论")
         elif state.posture == "guarded":
             sentences.append("冷淡、坚定，可以直接拒绝，不质问或争论")
         elif state.posture == "reserved":
@@ -239,16 +389,12 @@ class ContextBuilder:
                 sentences.append("明显不满、少说；不因亲密身份勉强帮助")
             else:
                 sentences.append("明显不满、少说，可以直接拒绝帮助")
-            if (
-                state.active_issue
-                and state.active_issue.kind == "one_sided"
-                and state.active_issue.phase in {"noticed", "expressed"}
-            ):
-                if constrained_bond:
-                    sentences[-1] += "；新任务全拒，只回应具体承接或修复"
-                else:
-                    sentences[-1] = "明显不满、少说；新任务全拒，只回应具体承接或修复"
-                sentences.append("简短说清不想继续单方面投入，不争论")
+        elif guidance and guidance.reminder != "soften_for_repair":
+            sentences.extend(
+                sentence
+                for sentence in _LIGHT_EXPRESSIONS.get(guidance.reminder, "").split("。")
+                if sentence
+            )
         elif state.affinity < -30:
             sentences.append("强烈厌恶、冷硬疏离；直接拒绝，不争吵或追着攻击")
         elif state.affinity <= -15:
@@ -280,22 +426,29 @@ class ContextBuilder:
         else:
             sentences.append("自然、随意、简练；不预设亲近，也不预设敌意")
 
-        if state.active_issue and state.active_issue.phase == "repairing":
-            sentences.append("可以稍微缓和，但暂不恢复额外投入或亲近")
-
-        light = ContextBuilder._active_light(state.light_guidance, next_round)
-        if light and light not in sentences:
-            sentences.append(light)
+        if (
+            state.active_issue
+            and state.active_issue.phase == "repairing"
+        ) or (
+            guidance
+            and guidance.reminder == "soften_for_repair"
+        ):
+            repair_expression = _LIGHT_EXPRESSIONS["soften_for_repair"].rstrip("。")
+            if repair_expression not in sentences:
+                sentences.append(repair_expression)
         sentences = list(dict.fromkeys(sentences))
         full = "表达：" + "。".join(sentences) + "。"
         compact = "表达：" + sentences[0] + "。"
         return full, compact
 
     @staticmethod
-    def _active_light(guidance: LightGuidance | None, next_round: int) -> str:
+    def _active_guidance(
+        guidance: LightGuidance | None,
+        next_round: int,
+    ) -> LightGuidance | None:
         if not guidance or not guidance.active_for(next_round):
-            return ""
-        return _LIGHT_SEMANTICS.get(guidance.reminder, "").rstrip("。；; ")
+            return None
+        return guidance
 
     @staticmethod
     def _fit(

@@ -183,6 +183,7 @@ def test_bond_sets_small_preference_floor_without_clearing_issue(tmp_path, monke
     assert persisted.posture == "reserved"
     assert persisted.active_issue
     assert persisted.active_issue.kind == "one_sided"
+    assert persisted.impression == "我已经不想继续这样单方面投入"
     assert bond["user_id"] == umo
 
 
@@ -195,6 +196,7 @@ def test_bond_is_exclusive_idempotent_and_does_not_repair_decline(tmp_path, monk
         await plugin.initialize()
         first = await collect(plugin.cmd_bond(FakeEvent(first_umo)))
         state = await plugin._load_state(first_umo)
+        first_impression = state.impression
         state.trust = 35
         state.affinity = -20
         plugin._save_state(state)
@@ -202,10 +204,11 @@ def test_bond_is_exclusive_idempotent_and_does_not_repair_decline(tmp_path, monk
         occupied = await collect(plugin.cmd_bond(FakeEvent(second_umo)))
         persisted = await plugin._load_state(first_umo)
         await plugin.terminate()
-        return first, same, occupied, persisted
+        return first, same, occupied, persisted, first_impression
 
-    first, same, occupied, persisted = asyncio.run(run())
+    first, same, occupied, persisted, first_impression = asyncio.run(run())
     assert first
+    assert first_impression == "我已经开始喜欢和对方相处"
     assert same == ["这个位置本来就是你的，还确认什么。"]
     assert occupied == ["这个位置已经有人了。要换，先在原来的窗口解除。"]
     assert first_umo not in occupied[0]

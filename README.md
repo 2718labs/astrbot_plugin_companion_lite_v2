@@ -5,7 +5,7 @@
   <p>面向 AstrBot 私聊场景的轻量关系侧车。它观察互动方式、维护关系状态，并把本轮投入、距离、处境、感受与表达编译成主人格可以直接执行的自然语言。</p>
   <p>
     <a href="https://github.com/AstrBotDevs/AstrBot"><img src="https://img.shields.io/badge/AstrBot-Plugin-5B67F1?style=flat-square" alt="AstrBot Plugin" /></a>
-    <a href="https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2/releases/tag/v2.0.0"><img src="https://img.shields.io/badge/release-v2.0.0-7357D9?style=flat-square" alt="Release v2.0.0" /></a>
+    <a href="https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2/releases/tag/v2.0.1"><img src="https://img.shields.io/badge/release-v2.0.1-7357D9?style=flat-square" alt="Release v2.0.1" /></a>
     <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2F855A?style=flat-square" alt="MIT License" /></a>
   </p>
@@ -24,7 +24,7 @@ CompanionLite V2 不替代主人格，也不保存用户事实。LivingMemory �
 
 关系分析模型只提交证据，不直接决定姿态、权限或绝对数值。关系升级、修复、三维变化和严重事件例外均由代码统一裁决；主人格最终看到的是简短自然语言，而不是内部评分、事件编号或分析标签。
 
-当前稳定版本为 `2.0.0`。新安装默认使用 `observe`，只记录、分析并生成预览；确认行为符合预期后再切换为 `active`，让关系上下文进入主模型请求。
+当前稳定版本为 `2.0.1`。新安装默认使用 `observe`，只记录、分析并生成预览；确认行为符合预期后再切换为 `active`，让关系上下文进入主模型请求。
 
 ## 为什么另做 V2
 
