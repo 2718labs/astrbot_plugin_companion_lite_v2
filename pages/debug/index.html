@@ -1,0 +1,1961 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CompanionLite V2 Debug</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f6fb;
+      --panel: rgba(255, 255, 255, .88);
+      --panel-solid: #fff;
+      --text: #172033;
+      --muted: #687287;
+      --line: rgba(112, 124, 151, .18);
+      --line-strong: rgba(112, 124, 151, .3);
+      --accent: #6757d9;
+      --accent-2: #4b8be8;
+      --accent-soft: rgba(103, 87, 217, .1);
+      --success: #168666;
+      --success-soft: rgba(22, 134, 102, .1);
+      --warning: #b26a13;
+      --warning-soft: rgba(178, 106, 19, .11);
+      --danger: #bc4858;
+      --danger-soft: rgba(188, 72, 88, .1);
+      --shadow: 0 18px 50px rgba(34, 43, 70, .08);
+      --shadow-soft: 0 8px 24px rgba(34, 43, 70, .055);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #10131b;
+        --panel: rgba(25, 29, 42, .9);
+        --panel-solid: #191d2a;
+        --text: #f2f3f8;
+        --muted: #a7afbf;
+        --line: rgba(170, 181, 204, .14);
+        --line-strong: rgba(170, 181, 204, .26);
+        --accent: #9b8cff;
+        --accent-2: #67a5ff;
+        --accent-soft: rgba(155, 140, 255, .13);
+        --success: #59c7a3;
+        --success-soft: rgba(89, 199, 163, .12);
+        --warning: #efb263;
+        --warning-soft: rgba(239, 178, 99, .12);
+        --danger: #f08a98;
+        --danger-soft: rgba(240, 138, 152, .12);
+        --shadow: 0 18px 50px rgba(0, 0, 0, .28);
+        --shadow-soft: 0 8px 24px rgba(0, 0, 0, .18);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 3% 0%, rgba(103, 87, 217, .15), transparent 30rem),
+        radial-gradient(circle at 95% 4%, rgba(75, 139, 232, .1), transparent 27rem),
+        var(--bg);
+      font: 14px/1.55 ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif;
+    }
+    .shell { width: min(1360px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 56px; }
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 18px;
+      margin-bottom: 18px; padding: 2px 2px 0;
+    }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: clamp(25px, 3vw, 34px); letter-spacing: -.04em; line-height: 1.12; }
+    h2 { margin-bottom: 13px; font-size: 15px; letter-spacing: -.01em; }
+    .subtitle, .muted { color: var(--muted); }
+    .subtitle {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 5px;
+      font-size: 11px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase;
+    }
+    .product-mark {
+      display: inline-grid; place-items: center; min-width: 42px; height: 22px;
+      padding: 0 8px; border: 1px solid rgba(103, 87, 217, .2);
+      border-radius: 7px; color: var(--accent); background: var(--accent-soft);
+      font-size: 10px; letter-spacing: .08em;
+    }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+    .view-tabs {
+      display: inline-flex; gap: 4px; margin: 0 0 16px; padding: 4px;
+      border: 1px solid var(--line); border-radius: 13px;
+      background: rgba(100, 110, 140, .055);
+    }
+    .view-tab {
+      min-height: 34px; padding: 0 14px; border-color: transparent;
+      border-radius: 9px; color: var(--muted); background: transparent;
+      box-shadow: none;
+    }
+    .view-tab:hover { border-color: transparent; background: var(--panel); box-shadow: none; }
+    .view-tab[aria-selected="true"] {
+      color: var(--text); background: var(--panel-solid);
+      box-shadow: 0 3px 10px rgba(34, 43, 70, .08);
+    }
+    .view-tab:focus-visible { outline: 3px solid var(--accent-soft); border-color: var(--accent); }
+    .live {
+      display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px;
+      border: 1px solid var(--line); border-radius: 999px;
+      color: var(--muted); background: var(--panel); font-size: 12px;
+    }
+    .live::before {
+      content: ""; width: 7px; height: 7px; border-radius: 50%;
+      background: #2d9b75; box-shadow: 0 0 0 4px rgba(45, 155, 117, .12);
+    }
+    input, button {
+      min-height: 38px; border: 1px solid var(--line); border-radius: 10px;
+      color: var(--text); background: var(--panel); font: inherit;
+      transition: border-color .16s ease, background .16s ease, transform .16s ease, box-shadow .16s ease;
+    }
+    input { width: 100%; padding: 0 12px; }
+    input:focus { border-color: var(--accent); outline: 3px solid var(--accent-soft); }
+    button { padding: 0 14px; cursor: pointer; font-weight: 700; }
+    button:hover { border-color: var(--accent); box-shadow: var(--shadow-soft); }
+    button:active { transform: translateY(1px); }
+    button.danger { color: var(--danger); }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    .switch {
+      position: relative; width: 54px; min-width: 54px; height: 32px;
+      min-height: 32px; padding: 0; border: 0; border-radius: 999px;
+      background: #8993a1; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .09);
+      transition: background .2s ease, box-shadow .2s ease;
+    }
+    .switch::after {
+      content: ""; position: absolute; top: 3px; left: 3px;
+      width: 26px; height: 26px; border-radius: 50%; background: #fff;
+      box-shadow: 0 2px 7px rgba(0, 0, 0, .28);
+      transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+    }
+    .switch[aria-checked="true"] {
+      background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+    .switch[aria-checked="true"]::after { transform: translateX(22px); }
+    .switch.compact {
+      width: 46px; min-width: 46px; height: 28px; min-height: 28px;
+    }
+    .switch.compact::after { width: 22px; height: 22px; }
+    .switch.compact[aria-checked="true"]::after { transform: translateX(18px); }
+    .switch:hover { border: 0; filter: brightness(1.04); }
+    .switch:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+    .switch[aria-busy="true"] { cursor: wait; opacity: .62; }
+    .notice {
+      display: none; margin-bottom: 14px; padding: 10px 13px;
+      border: 1px solid var(--danger); border-radius: 12px;
+      color: var(--danger); background: var(--danger-soft);
+    }
+    .notice.show { display: block; }
+    .workspace {
+      display: grid; grid-template-columns: 292px minmax(0, 1fr);
+      align-items: start; gap: 16px;
+    }
+    .roster {
+      position: sticky; top: 14px; max-height: calc(100vh - 28px); overflow: hidden;
+      padding: 14px; border: 1px solid var(--line); border-radius: 18px;
+      background: var(--panel); box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+    .roster-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .count {
+      min-width: 24px; padding: 1px 7px; border-radius: 99px;
+      color: var(--accent); background: var(--accent-soft); text-align: center; font-weight: 750;
+    }
+    .roster input { margin: 10px 0; }
+    .roster-list {
+      display: grid; gap: 7px; max-height: calc(100vh - 145px);
+      overflow: auto; padding-right: 2px;
+    }
+    .profile-card {
+      display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 10px;
+      min-height: unset; padding: 10px; border-color: transparent; border-radius: 12px;
+      background: transparent; text-align: left; font-weight: 400;
+    }
+    .profile-card:hover { background: var(--accent-soft); }
+    .profile-card.active {
+      border-color: rgba(75, 101, 209, .32); background: var(--accent-soft);
+    }
+    .avatar {
+      display: grid; place-items: center; width: 38px; height: 38px;
+      border-radius: 12px; color: #fff;
+      background: linear-gradient(145deg, var(--accent-2), var(--accent));
+      box-shadow: 0 7px 16px rgba(82, 83, 188, .2);
+      font-size: 15px; font-weight: 800;
+    }
+    .profile-card strong, .profile-card small {
+      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .profile-card small { color: var(--muted); }
+    .profile-meta { display: flex; gap: 6px; margin-top: 5px; align-items: center; }
+    .pill {
+      padding: 1px 7px; border-radius: 99px; color: var(--accent);
+      background: var(--accent-soft); font-size: 11px; font-weight: 700;
+    }
+    #dashboard { min-width: 0; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .panel {
+      grid-column: span 6; min-width: 0; padding: 19px;
+      border: 1px solid var(--line); border-radius: 18px;
+      background: var(--panel); box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(18px);
+    }
+    .wide { grid-column: 1 / -1; }
+    .hero-panel {
+      position: relative; overflow: hidden;
+      background:
+        linear-gradient(120deg, rgba(103, 87, 217, .08), transparent 42%),
+        var(--panel);
+    }
+    .hero-panel::after {
+      content: ""; position: absolute; top: -85px; right: -65px;
+      width: 210px; height: 210px; border-radius: 50%;
+      border: 42px solid rgba(103, 87, 217, .05); pointer-events: none;
+    }
+    .identity {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; margin-bottom: 15px;
+    }
+    .identity-main { display: flex; min-width: 0; align-items: center; gap: 12px; }
+    .identity .avatar { width: 46px; height: 46px; border-radius: 15px; font-size: 18px; }
+    .identity-title { min-width: 0; }
+    .identity-title h2 { margin: 0; font-size: 18px; }
+    .identity-title p { overflow-wrap: anywhere; }
+    .metrics { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; }
+    .metric {
+      padding: 13px; border: 1px solid var(--line); border-radius: 13px;
+      background: rgba(255, 255, 255, .24);
+    }
+    .metric-head { display: flex; justify-content: space-between; gap: 8px; }
+    .metric-head strong { font-size: 19px; }
+    .track { height: 6px; margin: 10px 0 4px; overflow: hidden; border-radius: 99px; background: var(--line); }
+    .fill { height: 100%; width: var(--width); background: var(--color); border-radius: inherit; }
+    .status-strip {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px; margin-top: 14px;
+    }
+    .status-card {
+      min-width: 0; padding: 11px 12px; border: 1px solid var(--line);
+      border-radius: 13px; background: rgba(100, 110, 140, .045);
+    }
+    .status-label {
+      display: block; color: var(--muted); font-size: 10px;
+      font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .status-value {
+      display: block; margin-top: 3px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; font-weight: 780;
+    }
+    .status-detail {
+      display: block; margin-top: 2px; overflow: hidden;
+      color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .tone-success { border-color: rgba(22, 134, 102, .22); background: var(--success-soft); }
+    .tone-warning { border-color: rgba(178, 106, 19, .24); background: var(--warning-soft); }
+    .tone-danger { border-color: rgba(188, 72, 88, .22); background: var(--danger-soft); }
+    .section-head {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 16px; margin-bottom: 13px;
+    }
+    .section-head h2 { margin: 0; }
+    .section-kicker {
+      margin-bottom: 3px; color: var(--accent); font-size: 10px;
+      font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+    }
+    .trace-grid {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .trace-step {
+      position: relative; min-height: 102px; padding: 13px;
+      border: 1px solid var(--line); border-radius: 14px;
+      background: rgba(100, 110, 140, .045);
+    }
+    .trace-step:not(:last-child)::after {
+      content: "→"; position: absolute; z-index: 1; top: 38px; right: -17px;
+      display: grid; place-items: center; width: 22px; height: 22px;
+      border: 1px solid var(--line); border-radius: 50%;
+      color: var(--accent); background: var(--panel-solid); font-weight: 850;
+    }
+    .trace-step strong { display: block; margin: 4px 0 5px; font-size: 14px; }
+    .trace-step p { color: var(--muted); overflow-wrap: anywhere; }
+    .trace-note {
+      display: flex; align-items: center; gap: 8px; margin-top: 10px;
+      padding: 9px 11px; border-radius: 11px; color: var(--muted);
+      background: rgba(100, 110, 140, .055); font-size: 12px;
+    }
+    .trace-note::before {
+      content: ""; flex: 0 0 auto; width: 8px; height: 8px;
+      border-radius: 50%; background: var(--accent);
+      box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+    .editorial-card {
+      position: relative; overflow: hidden; --portrait-tone: var(--accent);
+      --portrait-soft: var(--accent-soft);
+    }
+    .editorial-card::before {
+      content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+      background: var(--portrait-tone);
+    }
+    .relationship-positive {
+      --portrait-tone: var(--success); --portrait-soft: var(--success-soft);
+    }
+    .relationship-danger {
+      --portrait-tone: var(--danger); --portrait-soft: var(--danger-soft);
+    }
+    .editorial-signals {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 9px; margin-bottom: 14px;
+    }
+    .editorial-signal {
+      min-width: 0; padding: 10px 11px; border: 1px solid var(--line);
+      border-radius: 12px; background: rgba(100, 110, 140, .04);
+    }
+    .editorial-signal span {
+      display: block; color: var(--muted); font-size: 10px;
+      font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+    }
+    .editorial-signal strong {
+      display: block; margin-top: 2px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; font-size: 13px;
+    }
+    .portrait-layout {
+      display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(230px, .7fr);
+      gap: 14px;
+    }
+    .portrait-primary, .portrait-meta {
+      min-width: 0; border: 1px solid var(--line); border-radius: 15px;
+      background: rgba(100, 110, 140, .035);
+    }
+    .portrait-primary { padding: 16px; }
+    .portrait-lead {
+      padding-bottom: 14px; border-bottom: 1px solid var(--line);
+    }
+    .portrait-label {
+      display: block; color: var(--muted); font-size: 10px;
+      font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .portrait-lead strong {
+      display: block; margin-top: 5px; font-size: clamp(17px, 2vw, 21px);
+      letter-spacing: -.025em; line-height: 1.38;
+    }
+    .portrait-copy {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px; margin-top: 12px;
+    }
+    .narrative-block {
+      min-width: 0; padding: 12px; border-radius: 12px;
+      background: var(--panel-solid);
+    }
+    .narrative-block p {
+      margin-top: 5px; color: var(--text); overflow-wrap: anywhere;
+    }
+    .feeling-quote {
+      border-left: 3px solid var(--portrait-tone);
+      background: var(--portrait-soft);
+    }
+    .portrait-meta { padding: 14px; align-self: stretch; }
+    .compact-facts {
+      display: grid; grid-template-columns: minmax(86px, .55fr) 1fr;
+      gap: 9px 12px;
+    }
+    .compact-facts dt { color: var(--muted); font-size: 12px; }
+    .compact-facts dd { min-width: 0; font-weight: 650; }
+    .runtime-badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 5px 9px; border-radius: 999px; color: var(--muted);
+      background: rgba(100, 110, 140, .08); font-size: 11px; font-weight: 780;
+    }
+    .runtime-badge::before {
+      content: ""; width: 7px; height: 7px; border-radius: 50%;
+      background: currentColor;
+    }
+    .runtime-badge.enabled { color: var(--success); background: var(--success-soft); }
+    .rhythm-layout {
+      display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+      gap: 12px;
+    }
+    .cycle-card, .rhythm-card {
+      min-width: 0; padding: 15px; border: 1px solid var(--line);
+      border-radius: 14px; background: rgba(100, 110, 140, .035);
+    }
+    .cycle-heading {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    }
+    .cycle-heading strong { display: block; font-size: 17px; }
+    .cycle-heading span { color: var(--muted); font-size: 12px; }
+    .cycle-count {
+      flex: 0 0 auto; color: var(--accent); font-size: 19px; font-weight: 820;
+    }
+    .cycle-track {
+      height: 8px; margin: 14px 0 8px; overflow: hidden;
+      border-radius: 99px; background: var(--line);
+    }
+    .cycle-fill {
+      width: var(--cycle-progress); height: 100%; border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    }
+    .cycle-steps {
+      display: flex; justify-content: space-between; color: var(--muted); font-size: 10px;
+    }
+    .rhythm-stats {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+    }
+    .rhythm-stat {
+      min-width: 0; padding: 10px; border-radius: 11px; background: var(--panel-solid);
+    }
+    .rhythm-stat span { display: block; color: var(--muted); font-size: 11px; }
+    .rhythm-stat strong {
+      display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 13px;
+    }
+    .rhythm-meta {
+      margin-top: 10px; overflow-wrap: anywhere; color: var(--muted);
+      font: 10px/1.45 ui-monospace, Consolas, monospace;
+    }
+    .rhythm-note {
+      margin-top: 10px; padding: 8px 10px; border-radius: 10px;
+      color: var(--muted); background: rgba(100, 110, 140, .055); font-size: 11px;
+    }
+    .action-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line);
+    }
+    .action-bar p { color: var(--muted); font-size: 12px; }
+    .action-bar .actions { justify-content: flex-end; margin-top: 0; }
+    .semantic-tabs {
+      display: inline-flex; gap: 3px; padding: 3px;
+      border: 1px solid var(--line); border-radius: 11px;
+      background: rgba(100, 110, 140, .055);
+    }
+    .semantic-tab {
+      min-height: 31px; padding: 0 11px; border: 0; border-radius: 8px;
+      color: var(--muted); background: transparent; box-shadow: none; font-size: 12px;
+    }
+    .semantic-tab:hover { border: 0; background: var(--panel-solid); box-shadow: none; }
+    .semantic-tab[aria-selected="true"] {
+      color: var(--text); background: var(--panel-solid); box-shadow: var(--shadow-soft);
+    }
+    .semantic-tab:focus-visible { outline: 3px solid var(--accent-soft); }
+    .semantic-panel { min-width: 0; }
+    .semantic-note { margin-bottom: 10px; color: var(--muted); font-size: 12px; }
+    .semantic-list { display: grid; gap: 8px; }
+    .semantic-row {
+      display: grid; grid-template-columns: 74px minmax(0, 1fr);
+      gap: 12px; align-items: start; min-width: 0; padding: 11px 12px;
+      border: 1px solid var(--line); border-radius: 12px;
+      background: rgba(100, 110, 140, .035);
+    }
+    .semantic-row strong {
+      color: var(--accent); font-size: 12px; letter-spacing: .04em;
+    }
+    .semantic-row span { min-width: 0; overflow-wrap: anywhere; }
+    .semantic-row[data-semantic="感受"] { border-left: 3px solid var(--portrait-tone, var(--accent)); }
+    .raw-prompt {
+      margin-top: 10px; border: 1px solid var(--line);
+      border-radius: 12px; background: rgba(100, 110, 140, .025);
+    }
+    .raw-prompt summary {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 10px 12px; cursor: pointer; color: var(--muted);
+      font-size: 12px; font-weight: 720; list-style: none;
+    }
+    .raw-prompt summary::-webkit-details-marker,
+    .diagnostics-shell > summary::-webkit-details-marker { display: none; }
+    .raw-prompt summary::after { content: "展开"; color: var(--accent); }
+    .raw-prompt[open] summary::after { content: "收起"; }
+    .raw-prompt-content { padding: 0 10px 10px; }
+    .raw-prompt-toolbar {
+      display: flex; justify-content: flex-end; margin-bottom: 7px;
+    }
+    .copy-prompt { min-height: 30px; padding: 0 10px; font-size: 11px; }
+    .timeline-list { position: relative; display: grid; gap: 10px; }
+    .timeline-list::before {
+      content: ""; position: absolute; top: 12px; bottom: 12px; left: 13px;
+      width: 1px; background: var(--line-strong);
+    }
+    .message {
+      position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr);
+      gap: 11px; padding: 0; border: 0;
+    }
+    .message:first-child { padding-top: 0; }
+    .message-marker {
+      position: relative; z-index: 1; display: grid; place-items: center;
+      width: 28px; height: 28px; border: 3px solid var(--panel-solid);
+      border-radius: 50%; color: #fff; background: var(--accent);
+      font-size: 10px; font-weight: 850;
+    }
+    .message.assistant .message-marker { background: var(--success); }
+    .message-card {
+      min-width: 0; padding: 11px 12px; border: 1px solid var(--line);
+      border-radius: 12px; background: rgba(100, 110, 140, .035);
+    }
+    .message-head {
+      display: flex; justify-content: space-between; gap: 10px;
+      color: var(--muted); font-size: 11px;
+    }
+    .message-body { margin-top: 5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .timeline-actions { display: flex; justify-content: center; margin-top: 12px; }
+    .timeline-toggle { min-height: 32px; font-size: 12px; }
+    .diagnostics-shell { padding: 0; overflow: hidden; }
+    .diagnostics-shell > summary {
+      position: relative; display: flex; align-items: center;
+      justify-content: space-between; gap: 16px; padding: 18px 48px 18px 19px;
+      cursor: pointer; list-style: none;
+    }
+    .diagnostics-shell > summary::after {
+      content: "⌄"; position: absolute; right: 20px; top: 50%;
+      color: var(--accent); font-size: 20px; transform: translateY(-55%);
+      transition: transform .16s ease;
+    }
+    .diagnostics-shell[open] > summary::after {
+      transform: translateY(-45%) rotate(180deg);
+    }
+    .diagnostics-summary-copy h2 { margin: 2px 0 0; }
+    .diagnostic-badges {
+      display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px;
+    }
+    .diagnostic-badge {
+      padding: 4px 8px; border-radius: 999px; color: var(--muted);
+      background: rgba(100, 110, 140, .08); font-size: 10px; font-weight: 760;
+    }
+    .diagnostic-badge.warning { color: var(--warning); background: var(--warning-soft); }
+    .diagnostic-badge.danger { color: var(--danger); background: var(--danger-soft); }
+    .diagnostics-body {
+      padding: 18px; border-top: 1px solid var(--line);
+      background: rgba(100, 110, 140, .025);
+    }
+    .diagnostic-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+    }
+    .diagnostic-card {
+      min-width: 0; padding: 14px; border: 1px solid var(--line);
+      border-radius: 13px; background: var(--panel-solid);
+    }
+    .diagnostic-card.wide { grid-column: 1 / -1; }
+    .diagnostic-card h3 { margin: 0 0 10px; font-size: 13px; }
+    dl { display: grid; grid-template-columns: minmax(110px, .42fr) 1fr; gap: 7px 14px; margin: 0; }
+    dt { color: var(--muted); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    pre {
+      max-height: 360px; overflow: auto; margin: 0; padding: 13px;
+      border: 1px solid var(--line); border-radius: 12px;
+      background: rgba(78, 86, 108, .075);
+      white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 ui-monospace, Consolas, monospace;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+    .empty { color: var(--muted); padding: 10px 0; }
+    [hidden] { display: none !important; }
+    .management-view { display: grid; gap: 16px; }
+    .management-stats {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+    }
+    .management-stat {
+      position: relative; overflow: hidden; min-width: 0; padding: 17px;
+      border: 1px solid var(--line); border-radius: 16px;
+      background: var(--panel); box-shadow: var(--shadow-soft);
+    }
+    .management-stat::after {
+      content: ""; position: absolute; right: -18px; bottom: -28px;
+      width: 82px; height: 82px; border-radius: 50%;
+      background: var(--stat-tint, var(--accent-soft));
+    }
+    .management-stat span, .management-stat strong, .management-stat small {
+      position: relative; z-index: 1; display: block;
+    }
+    .management-stat span {
+      color: var(--muted); font-size: 11px; font-weight: 800;
+      letter-spacing: .07em; text-transform: uppercase;
+    }
+    .management-stat strong { margin: 5px 0 1px; font-size: 27px; letter-spacing: -.04em; }
+    .management-stat small { color: var(--muted); }
+    .management-stat.enabled { --stat-tint: var(--success-soft); }
+    .management-stat.disabled { --stat-tint: var(--danger-soft); }
+    .management-stat.ratio { --stat-tint: rgba(75, 139, 232, .1); }
+    .management-panel {
+      min-width: 0; padding: 18px; border: 1px solid var(--line);
+      border-radius: 18px; background: var(--panel); box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(18px);
+    }
+    .management-panel-head {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 16px; margin-bottom: 14px;
+    }
+    .management-panel-head h2 { margin-bottom: 3px; }
+    .management-result {
+      flex: 0 0 auto; padding: 4px 9px; border-radius: 999px;
+      color: var(--accent); background: var(--accent-soft);
+      font-size: 12px; font-weight: 750;
+    }
+    .management-filters {
+      display: grid; grid-template-columns: minmax(220px, 1fr) auto minmax(150px, auto);
+      gap: 10px; align-items: center; margin-bottom: 13px;
+    }
+    .management-search { min-width: 0; }
+    .segmented {
+      display: inline-flex; gap: 3px; padding: 3px;
+      border: 1px solid var(--line); border-radius: 11px;
+      background: rgba(100, 110, 140, .05);
+    }
+    .segment-button {
+      min-height: 32px; padding: 0 11px; border: 0; border-radius: 8px;
+      color: var(--muted); background: transparent; box-shadow: none;
+      font-size: 12px;
+    }
+    .segment-button:hover { border: 0; background: var(--panel); box-shadow: none; }
+    .segment-button[aria-pressed="true"] {
+      color: var(--text); background: var(--panel-solid); box-shadow: var(--shadow-soft);
+    }
+    .management-sort {
+      min-height: 38px; border: 1px solid var(--line); border-radius: 10px;
+      padding: 0 32px 0 11px; color: var(--text); background: var(--panel-solid);
+      font: inherit;
+    }
+    .management-table-wrap {
+      overflow-x: auto; border: 1px solid var(--line); border-radius: 14px;
+      background: rgba(100, 110, 140, .025);
+    }
+    .management-table {
+      width: 100%; border-collapse: collapse; table-layout: fixed;
+    }
+    .management-table th {
+      padding: 10px 12px; border-bottom: 1px solid var(--line);
+      color: var(--muted); background: rgba(100, 110, 140, .045);
+      font-size: 11px; letter-spacing: .05em; text-align: left; text-transform: uppercase;
+    }
+    .management-table td {
+      min-width: 0; padding: 12px; border-bottom: 1px solid var(--line);
+      vertical-align: middle;
+    }
+    .management-table tbody tr:last-child td { border-bottom: 0; }
+    .management-table tbody tr:hover { background: rgba(103, 87, 217, .035); }
+    .management-table th:nth-child(1) { width: 27%; }
+    .management-table th:nth-child(2) { width: 13%; }
+    .management-table th:nth-child(3) { width: 14%; }
+    .management-table th:nth-child(4) { width: 7%; }
+    .management-table th:nth-child(5) { width: 13%; }
+    .management-table th:nth-child(6) { width: 13%; }
+    .management-table th:nth-child(7) { width: 13%; text-align: right; }
+    .management-table td:last-child { text-align: right; }
+    .session-link {
+      display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px;
+      width: 100%; min-height: unset; padding: 0; border: 0;
+      background: transparent; box-shadow: none; text-align: left;
+    }
+    .session-link:hover { border: 0; box-shadow: none; }
+    .session-link .avatar { width: 36px; height: 36px; border-radius: 11px; }
+    .session-link-copy { min-width: 0; }
+    .session-link strong {
+      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .session-link code {
+      display: block; overflow-wrap: anywhere; color: var(--muted);
+      font: 10px/1.35 ui-monospace, Consolas, monospace;
+    }
+    .table-primary { display: block; font-weight: 720; }
+    .table-secondary { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+    .state-badge {
+      display: inline-flex; align-items: center; gap: 7px; padding: 4px 8px;
+      border-radius: 999px; color: var(--muted); background: rgba(100, 110, 140, .08);
+      font-size: 12px; font-weight: 720; white-space: nowrap;
+    }
+    .state-badge::before {
+      content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted);
+    }
+    .state-badge.enabled { color: var(--success); background: var(--success-soft); }
+    .state-badge.enabled::before { background: var(--success); }
+    .management-toggle-cell {
+      display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px;
+      width: 100%;
+    }
+    .management-toggle-cell small { color: var(--muted); white-space: nowrap; }
+    .management-empty { padding: 34px 18px; text-align: center; }
+    @media (max-width: 760px) {
+      header { align-items: stretch; flex-direction: column; }
+      .view-tabs { display: flex; }
+      .view-tab { flex: 1; }
+      .workspace { grid-template-columns: 1fr; }
+      .roster { position: static; max-height: none; }
+      .roster-list {
+        display: flex; max-height: none; overflow-x: auto; padding: 0 0 3px;
+      }
+      .profile-card { min-width: 220px; }
+      .panel { grid-column: 1 / -1; }
+      .metrics, .status-strip, .trace-grid { grid-template-columns: 1fr; }
+      .trace-step:not(:last-child)::after {
+        content: "↓"; top: auto; right: 20px; bottom: -17px;
+      }
+      .editorial-signals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .portrait-layout, .portrait-copy, .rhythm-layout, .diagnostic-grid {
+        grid-template-columns: 1fr;
+      }
+      .diagnostic-card.wide { grid-column: auto; }
+      .action-bar { align-items: stretch; flex-direction: column; }
+      .actions { margin-top: 0; }
+      .diagnostics-shell > summary {
+        align-items: flex-start; flex-direction: column;
+      }
+      .diagnostic-badges { justify-content: flex-start; }
+      .management-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .management-filters { grid-template-columns: 1fr; }
+      .segmented { display: flex; }
+      .segment-button { flex: 1; }
+      .management-table-wrap { overflow: visible; border: 0; background: transparent; }
+      .management-table, .management-table tbody { display: block; }
+      .management-table thead { display: none; }
+      .management-table tr {
+        display: grid; grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px 14px; margin-bottom: 10px; padding: 14px;
+        border: 1px solid var(--line); border-radius: 14px;
+        background: rgba(100, 110, 140, .035);
+      }
+      .management-table td {
+        display: block; padding: 0; border: 0; text-align: left;
+      }
+      .management-table td:nth-child(1) { grid-column: 1 / -1; }
+      .management-table td:nth-child(2),
+      .management-table td:nth-child(3),
+      .management-table td:nth-child(4),
+      .management-table td:nth-child(5) { grid-column: 1; }
+      .management-table td:nth-child(6) { grid-column: 2; grid-row: 2; }
+      .management-table td:nth-child(7) {
+        grid-column: 2; grid-row: 3 / span 3; align-self: center;
+      }
+      .management-toggle-cell { align-items: flex-end; flex-direction: column-reverse; }
+      .management-panel { padding: 14px; }
+    }
+    @media (max-width: 420px) {
+      .shell { width: min(100% - 20px, 1360px); padding-top: 16px; }
+      .editorial-signals, .rhythm-stats { grid-template-columns: 1fr; }
+      .semantic-row { grid-template-columns: 1fr; gap: 4px; }
+      .section-head { align-items: stretch; flex-direction: column; }
+      .section-head > .pill, .section-head > .runtime-badge { align-self: flex-start; }
+      .semantic-tabs { display: flex; }
+      .semantic-tab { flex: 1; }
+      .actions button { flex: 1 1 100%; }
+      .message-head { align-items: flex-start; flex-direction: column; gap: 2px; }
+      .management-stats { grid-template-columns: 1fr; }
+      .management-panel-head { align-items: stretch; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <div class="subtitle"><span class="product-mark">CLV2</span> relation inspector</div>
+        <h1 id="page-title">用户关系档案册</h1>
+      </div>
+      <div class="toolbar">
+        <span id="live-status" class="live">每 5 秒自动同步 · 选中文字或编辑时暂停</span>
+        <button id="refresh" type="button">刷新</button>
+      </div>
+    </header>
+    <div class="view-tabs" role="tablist" aria-label="CompanionLite V2 页面">
+      <button id="view-tab-profile" class="view-tab" type="button" role="tab"
+        aria-selected="true" aria-controls="profile-view" data-view="profile">关系档案</button>
+      <button id="view-tab-management" class="view-tab" type="button" role="tab"
+        aria-selected="false" aria-controls="management-view" tabindex="-1"
+        data-view="management">启停管理</button>
+    </div>
+    <div id="notice" class="notice"></div>
+    <input id="user-id" type="hidden">
+    <div id="profile-view" class="workspace" role="tabpanel"
+      aria-labelledby="view-tab-profile">
+      <aside class="roster">
+        <div class="roster-head">
+          <h2>已知用户</h2>
+          <span id="profile-count" class="count">0</span>
+        </div>
+        <input id="profile-search" type="search" placeholder="搜索用户、平台或会话">
+        <div id="profile-list" class="roster-list">
+          <div class="empty">正在读取……</div>
+        </div>
+      </aside>
+      <main id="dashboard">
+        <section class="panel wide"><div class="empty">正在读取已知私聊会话……</div></section>
+      </main>
+    </div>
+    <main id="management-view" class="management-view" role="tabpanel"
+      aria-labelledby="view-tab-management" hidden>
+      <section class="management-stats" aria-label="会话启停统计">
+        <div class="management-stat">
+          <span>全部会话</span>
+          <strong id="management-total">0</strong>
+          <small>已建立关系档案的 UMO</small>
+        </div>
+        <div class="management-stat enabled">
+          <span>正在运行</span>
+          <strong id="management-enabled">0</strong>
+          <small>注入、记录与分析均已开启</small>
+        </div>
+        <div class="management-stat disabled">
+          <span>已经关闭</span>
+          <strong id="management-disabled">0</strong>
+          <small>不会记录，也不消耗分析 token</small>
+        </div>
+        <div class="management-stat ratio">
+          <span>启用比例</span>
+          <strong id="management-ratio">0%</strong>
+          <small>按当前已知会话计算</small>
+        </div>
+      </section>
+      <section class="management-panel">
+        <div class="management-panel-head">
+          <div>
+            <div class="section-kicker">Session controls</div>
+            <h2>会话功能启停</h2>
+            <p class="muted">每个开关立即保存。点击会话名称可回到关系档案查看详情。</p>
+          </div>
+          <span id="management-result" class="management-result">0 条</span>
+        </div>
+        <div class="management-filters">
+          <input id="management-search" class="management-search" type="search"
+            placeholder="搜索 UMO、平台、消息类型或发送者 ID"
+            aria-label="搜索会话">
+          <div class="segmented" role="group" aria-label="启用状态筛选">
+            <button class="segment-button" type="button" data-status-filter="all"
+              aria-pressed="true">全部</button>
+            <button class="segment-button" type="button" data-status-filter="enabled"
+              aria-pressed="false">已开启</button>
+            <button class="segment-button" type="button" data-status-filter="disabled"
+              aria-pressed="false">已关闭</button>
+          </div>
+          <select id="management-sort" class="management-sort" aria-label="会话排序">
+            <option value="updated-desc">最近更新</option>
+            <option value="updated-asc">最早更新</option>
+            <option value="sender-asc">发送者 ID</option>
+          </select>
+        </div>
+        <div class="management-table-wrap">
+          <table class="management-table">
+            <thead>
+              <tr>
+                <th scope="col">会话</th>
+                <th scope="col">平台 / 类型</th>
+                <th scope="col">关系状态</th>
+                <th scope="col">轮次</th>
+                <th scope="col">最后更新</th>
+                <th scope="col">运行状态</th>
+                <th scope="col">功能开关</th>
+              </tr>
+            </thead>
+            <tbody id="management-list">
+              <tr><td colspan="7"><div class="management-empty muted">正在读取会话……</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const $ = selector => document.querySelector(selector);
+    const input = $("#user-id");
+    const profileSearch = $("#profile-search");
+    const profileList = $("#profile-list");
+    const profileCount = $("#profile-count");
+    const dashboard = $("#dashboard");
+    const notice = $("#notice");
+    const liveStatus = $("#live-status");
+    const pageTitle = $("#page-title");
+    const profileView = $("#profile-view");
+    const managementView = $("#management-view");
+    const managementSearch = $("#management-search");
+    const managementSort = $("#management-sort");
+    const managementList = $("#management-list");
+    const managementResult = $("#management-result");
+    let bridge;
+    let loading = false;
+    let refreshGeneration = 0;
+    let autoSyncing = false;
+    let knownSessions = [];
+    let lastDashboardFingerprint = "";
+    let lastSessionsFingerprint = "";
+    let activeView = "profile";
+    let managementFilter = "all";
+    const pendingManagementToggles = new Set();
+    const profileUiStates = new Map();
+    let renderedProfileUserId = "";
+
+    function esc(value) {
+      const node = document.createElement("div");
+      node.textContent = value == null ? "" : String(value);
+      return node.innerHTML;
+    }
+    function num(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toFixed(1) : "-";
+    }
+    function time(value) {
+      const seconds = Number(value);
+      return seconds > 0 ? new Date(seconds * 1000).toLocaleString() : "-";
+    }
+    const stageNames = {
+      stranger: "陌生", acquaintance: "初识", familiar: "熟悉",
+      long_familiar: "长期熟悉", close: "亲近",
+    };
+    const postureNames = {
+      normal: "自然", reserved: "保留", guarded: "警惕", disengaged: "退出",
+    };
+    const issueNames = {
+      one_sided: "互动单向", ignored_expression: "表达被忽视",
+      boundary_violation: "边界被越过", degradation: "贬损", coercion: "强迫",
+    };
+    const phaseNames = { noticed: "已察觉", expressed: "已表达", repairing: "修复中" };
+    const analysisKindNames = {
+      severe: "严重确认", light: "轻分析", deep: "深分析", rebuild: "档案重建",
+    };
+    const analysisStatusNames = {
+      never: "尚未运行", running: "正在运行", signal: "发现信号",
+      none: "未发现信号", applied: "已更新关系",
+      invalid: "无有效结果", interrupted: "被重载中断",
+    };
+    const signalNames = {
+      ...issueNames, none: "无", repair: "修复迹象",
+      premature_intimacy: "关系尚浅时推进亲密",
+    };
+    const reminderNames = {
+      none: "无", notice_pattern: "继续观察",
+      express_preference: "可以自然表达互动偏好",
+      keep_distance: "保持自然距离",
+      hold_boundary: "维持当前边界", soften_for_repair: "允许谨慎回应修复",
+    };
+    const personaSourceNames = {
+      session_override: "会话临时指定", conversation: "当前对话",
+      default: "默认人格", none: "未解析",
+    };
+    const bondStatusNames = {
+      bound_current: "当前唯一正式关系", occupied_elsewhere: "席位由其他窗口占用",
+      former: "曾绑定，现已解除", unbound: "未绑定", unresolved: "人格未解析",
+    };
+    const errorNames = {
+      bonded_rebuild_forbidden: "正式绑定期间不能重建档案；请先解除绑定。",
+      observe_mode_required: "档案重建只在 observe 模式可用。",
+      not_enough_completed_rounds: "至少需要两个完整来回才能重建档案。",
+      umo_disabled: "此 UMO 的陪伴功能已关闭，不会调用分析模型。",
+      unknown_umo: "只能切换已经存在的 UMO。",
+      invalid_enabled_value: "启用状态参数无效。",
+    };
+    function named(map, value) {
+      return map[value] || value || "-";
+    }
+    function errorText(value) {
+      return errorNames[value] || value || "请求失败";
+    }
+    function initial(value) {
+      const text = String(value || "?").trim();
+      return Array.from(text)[0] || "?";
+    }
+    function path(name) {
+      return `page/${name}`;
+    }
+    async function getBridge() {
+      if (bridge) return bridge;
+      const start = Date.now();
+      while (!window.AstrBotPluginPage && Date.now() - start < 5000) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      bridge = window.AstrBotPluginPage;
+      if (!bridge) throw new Error("AstrBotPluginPage Bridge 未加载");
+      if (typeof bridge.ready === "function") await bridge.ready();
+      return bridge;
+    }
+    async function apiGet(route, params = {}) {
+      const api = await getBridge();
+      const result = await api.apiGet(route, params);
+      if (result?.error) throw new Error(errorText(result.error));
+      return result || {};
+    }
+    async function apiPost(route, body = {}) {
+      const api = await getBridge();
+      if (typeof api.apiPost === "function") {
+        const result = await api.apiPost(route, body);
+        if (result?.error) throw new Error(errorText(result.error));
+        return result || {};
+      }
+      const result = await api.apiRequest(route, { method: "POST", body });
+      if (result?.error) throw new Error(errorText(result.error));
+      return result || {};
+    }
+    function actionPath(name, userId) {
+      return path(name);
+    }
+    function showError(message = "") {
+      notice.textContent = message;
+      notice.classList.toggle("show", Boolean(message));
+    }
+    function metric(label, value, semantic, min, max, color) {
+      const number = Number(value);
+      const width = Number.isFinite(number)
+        ? Math.max(0, Math.min(100, (number - min) / (max - min) * 100))
+        : 0;
+      return `<div class="metric">
+        <div class="metric-head"><span>${esc(label)}</span><strong>${num(value)}</strong></div>
+        <div class="track"><div class="fill" style="--width:${width}%;--color:${color}"></div></div>
+        <div class="muted">${esc(semantic || `${min} … ${max}`)}</div>
+      </div>`;
+    }
+    function facts(items) {
+      return `<dl>${items.map(([key, value]) =>
+        `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>`;
+    }
+    function compactFacts(items) {
+      const visible = items.filter(([, value]) => {
+        const text = String(value == null ? "" : value).trim();
+        return text && text !== "-";
+      });
+      if (!visible.length) return '<div class="empty">暂无补充档案。</div>';
+      return `<dl class="compact-facts">${visible.map(([key, value]) =>
+        `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>`;
+    }
+    function tokenValue(value) {
+      return Number.isFinite(Number(value)) ? String(Number(value)) : "提供商未报告";
+    }
+    function cacheRatio(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? `${(number * 100).toFixed(1)}%` : "提供商未报告";
+    }
+    function jsonView(value, empty = "暂无记录。") {
+      if (!value || (typeof value === "object" && !Object.keys(value).length)) return empty;
+      return JSON.stringify(value, null, 2);
+    }
+    function taggedValue(context, tag) {
+      const text = String(context || "");
+      const match = text.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+      return match ? match[1].trim() : "";
+    }
+    function relationshipTone(state) {
+      if (
+        ["guarded", "disengaged"].includes(state.posture)
+        || Number(state.affinity || 0) < 0
+        || state.active_issue
+      ) return "relationship-danger";
+      if (
+        state.relationship_role === "bonded"
+        || Number(state.affinity || 0) >= 15
+      ) return "relationship-positive";
+      return "relationship-neutral";
+    }
+    function semanticProjection(context) {
+      const fields = ["投入", "关系", "处境", "感受", "表达"];
+      return `<div class="semantic-list">${fields.map(field => `
+        <div class="semantic-row" data-semantic="${field}">
+          <strong>${field}</strong>
+          <span>${esc(taggedValue(context, field) || "当前文本中没有这个标签")}</span>
+        </div>`).join("")}</div>`;
+    }
+    function messages(items, expanded = false) {
+      if (!items.length) return '<div class="empty">没有已记录消息。</div>';
+      const hiddenCount = Math.max(0, items.length - 6);
+      const timeline = items.map((item, index) => {
+        const role = item.role === "assistant" ? "assistant" : "user";
+        const roleLabel = role === "assistant" ? "助手" : "用户";
+        const marker = role === "assistant" ? "A" : "U";
+        const hidden = !expanded && index < hiddenCount ? " hidden" : "";
+        return `<article class="message ${role}"${hidden}>
+          <span class="message-marker" aria-hidden="true">${marker}</span>
+          <div class="message-card">
+            <div class="message-head">
+              <strong>${roleLabel}</strong>
+              <span>round ${esc(item.completed_round)} · ${esc(time(item.created_at))}</span>
+            </div>
+            <div class="message-body">${esc(item.content)}</div>
+          </div>
+        </article>`;
+      }).join("");
+      const toggle = hiddenCount
+        ? `<div class="timeline-actions">
+            <button class="timeline-toggle" type="button" data-toggle-messages
+              data-focus-key="messages-toggle"
+              aria-expanded="${expanded ? "true" : "false"}">
+              ${expanded ? "收起到最近 6 条" : `展开更早的 ${hiddenCount} 条`}
+            </button>
+          </div>`
+        : "";
+      return `<div class="timeline-list">${timeline}</div>${toggle}`;
+    }
+    function profileUiState(userId) {
+      const key = String(userId || "");
+      if (!profileUiStates.has(key)) {
+        profileUiStates.set(key, {
+          semanticTab: "next",
+          messagesExpanded: false,
+          diagnosticsOpen: null,
+          rawPromptOpen: { next: false, previous: false },
+        });
+      }
+      return profileUiStates.get(key);
+    }
+    function captureProfileUiState(userId) {
+      if (!userId) return;
+      const state = profileUiState(userId);
+      const selectedTab = dashboard.querySelector('[data-semantic-tab][aria-selected="true"]');
+      if (selectedTab) state.semanticTab = selectedTab.dataset.semanticTab || "next";
+      const messageToggle = dashboard.querySelector("[data-toggle-messages]");
+      if (messageToggle) {
+        state.messagesExpanded = messageToggle.getAttribute("aria-expanded") === "true";
+      }
+      const diagnostics = dashboard.querySelector('[data-profile-disclosure="diagnostics"]');
+      if (diagnostics) state.diagnosticsOpen = diagnostics.open;
+      dashboard.querySelectorAll("[data-raw-prompt]").forEach(details => {
+        state.rawPromptOpen[details.dataset.rawPrompt] = details.open;
+      });
+    }
+    function hasTextSelection() {
+      const selection = window.getSelection?.();
+      return Boolean(selection && selection.rangeCount && !selection.isCollapsed);
+    }
+    function isEditing() {
+      const active = document.activeElement;
+      if (!active) return false;
+      return active.matches?.("input, textarea, select, [contenteditable='true']");
+    }
+    function updateLiveStatus() {
+      liveStatus.textContent = hasTextSelection() || isEditing()
+        ? "自动同步已暂停 · 复制或编辑完成后继续"
+        : "每 5 秒自动同步 · 选中文字或编辑时暂停";
+    }
+    function renderProfiles(query = "") {
+      const needle = query.trim().toLocaleLowerCase();
+      const visible = knownSessions.filter(item => {
+        const haystack = [
+          item.sender_id, item.platform, item.session_type,
+          item.session_target, item.umo, item.user_id,
+          named(stageNames, item.relationship_stage),
+          named(postureNames, item.posture),
+        ].join(" ").toLocaleLowerCase();
+        return !needle || haystack.includes(needle);
+      });
+      profileCount.textContent = knownSessions.length;
+      if (!visible.length) {
+        profileList.innerHTML = `<div class="empty">${knownSessions.length ? "没有匹配的档案。" : "暂无用户档案。"}</div>`;
+        return;
+      }
+      profileList.innerHTML = visible.map(item => {
+        const active = item.user_id === input.value ? " active" : "";
+        const encodedId = encodeURIComponent(item.user_id);
+        return `<button class="profile-card${active}" type="button" data-user-id="${encodedId}">
+          <span class="avatar">${esc(initial(item.sender_id))}</span>
+          <span>
+            <strong>${esc(item.sender_id || item.user_id)}</strong>
+            <small>${esc(item.platform || "未知实例")} · ${esc(item.session_type || "私聊")}</small>
+            <span class="profile-meta">
+              <span class="pill">${esc(named(stageNames, item.relationship_stage))}</span>
+              <small>${esc(item.round_sequence || 0)} 轮 · ${esc(named(postureNames, item.posture))}</small>
+            </span>
+          </span>
+        </button>`;
+      }).join("");
+    }
+    function sessionSearchText(item) {
+      return [
+        item.sender_id, item.platform, item.session_type,
+        item.session_target, item.umo, item.user_id,
+        named(stageNames, item.relationship_stage),
+        named(postureNames, item.posture),
+      ].join(" ").toLocaleLowerCase();
+    }
+    function setActiveView(view, { focusTab = false } = {}) {
+      activeView = view === "management" ? "management" : "profile";
+      document.querySelectorAll("[data-view]").forEach(tab => {
+        const selected = tab.dataset.view === activeView;
+        tab.setAttribute("aria-selected", selected ? "true" : "false");
+        tab.tabIndex = selected ? 0 : -1;
+        if (selected && focusTab) tab.focus();
+      });
+      profileView.hidden = activeView !== "profile";
+      managementView.hidden = activeView !== "management";
+      profileView.setAttribute("aria-hidden", activeView === "profile" ? "false" : "true");
+      managementView.setAttribute("aria-hidden", activeView === "management" ? "false" : "true");
+      pageTitle.textContent = activeView === "management"
+        ? "会话启停管理"
+        : "用户关系档案册";
+      if (activeView === "management") renderManagement();
+      window.scrollTo(0, 0);
+    }
+    function renderManagement() {
+      const total = knownSessions.length;
+      const enabledCount = knownSessions.filter(item => item.enabled !== false).length;
+      const disabledCount = total - enabledCount;
+      const ratio = total ? Math.round(enabledCount / total * 100) : 0;
+      $("#management-total").textContent = String(total);
+      $("#management-enabled").textContent = String(enabledCount);
+      $("#management-disabled").textContent = String(disabledCount);
+      $("#management-ratio").textContent = `${ratio}%`;
+
+      const needle = managementSearch.value.trim().toLocaleLowerCase();
+      const visible = knownSessions.filter(item => {
+        const enabled = item.enabled !== false;
+        const statusMatch = managementFilter === "all"
+          || (managementFilter === "enabled" && enabled)
+          || (managementFilter === "disabled" && !enabled);
+        return statusMatch && (!needle || sessionSearchText(item).includes(needle));
+      });
+      const sort = managementSort.value;
+      visible.sort((left, right) => {
+        if (sort === "updated-asc") {
+          return Number(left.updated_at || 0) - Number(right.updated_at || 0);
+        }
+        if (sort === "sender-asc") {
+          return String(left.sender_id || left.user_id || "").localeCompare(
+            String(right.sender_id || right.user_id || ""),
+            "zh-CN",
+            { numeric: true },
+          );
+        }
+        return Number(right.updated_at || 0) - Number(left.updated_at || 0);
+      });
+      managementResult.textContent = `${visible.length} 条`;
+      document.querySelectorAll("[data-status-filter]").forEach(button => {
+        button.setAttribute(
+          "aria-pressed",
+          button.dataset.statusFilter === managementFilter ? "true" : "false",
+        );
+      });
+      if (!visible.length) {
+        managementList.innerHTML = `<tr><td colspan="7">
+          <div class="management-empty muted">${total
+            ? "没有符合当前筛选条件的会话。"
+            : "暂无会话。完成一次私聊后再来管理。"}</div>
+        </td></tr>`;
+        return;
+      }
+      managementList.innerHTML = visible.map(item => {
+        const userId = String(item.user_id || "");
+        const encodedId = encodeURIComponent(userId);
+        const enabled = item.enabled !== false;
+        const pending = pendingManagementToggles.has(userId);
+        const sender = item.sender_id || userId;
+        const platform = item.platform || "未知实例";
+        const sessionType = item.session_type || "私聊";
+        const sessionTarget = item.session_target || "";
+        return `<tr>
+          <td>
+            <button class="session-link" type="button"
+              data-open-profile="${encodedId}"
+              aria-label="打开 ${esc(sender)} 的关系档案">
+              <span class="avatar">${esc(initial(sender))}</span>
+              <span class="session-link-copy">
+                <strong>${esc(sender)}</strong>
+                <code>${esc(item.umo || userId)}</code>
+              </span>
+            </button>
+          </td>
+          <td>
+            <span class="table-primary">${esc(platform)}</span>
+            <span class="table-secondary">${esc(sessionType)}${sessionTarget ? ` · ${esc(sessionTarget)}` : ""}</span>
+          </td>
+          <td>
+            <span class="table-primary">${esc(named(stageNames, item.relationship_stage))}</span>
+            <span class="table-secondary">${esc(named(postureNames, item.posture))}</span>
+          </td>
+          <td><span class="table-primary">${esc(item.round_sequence || 0)}</span></td>
+          <td>
+            <span class="table-primary">${esc(time(item.updated_at))}</span>
+          </td>
+          <td>
+            <span class="state-badge ${enabled ? "enabled" : ""}">
+              ${enabled ? "陪伴已开启" : "陪伴已关闭"}
+            </span>
+          </td>
+          <td>
+            <span class="management-toggle-cell">
+              <small>${pending ? "保存中" : "即时保存"}</small>
+              <button class="switch compact" type="button" role="switch"
+                data-management-toggle="${encodedId}"
+                data-enable-next="${enabled ? "false" : "true"}"
+                aria-checked="${enabled ? "true" : "false"}"
+                aria-label="${enabled ? `关闭 ${esc(sender)} 的陪伴功能` : `开启 ${esc(sender)} 的陪伴功能`}"
+                ${pending ? 'aria-busy="true" disabled' : ""}></button>
+            </span>
+          </td>
+        </tr>`;
+      }).join("");
+    }
+    async function toggleManagementSession(button) {
+      const userId = decodeURIComponent(button.dataset.managementToggle || "");
+      const session = knownSessions.find(item => item.user_id === userId);
+      if (!userId || !session || pendingManagementToggles.has(userId)) return;
+      const enabled = button.dataset.enableNext === "true";
+      pendingManagementToggles.add(userId);
+      showError();
+      renderManagement();
+      try {
+        const result = await apiPost(path("enabled"), {
+          user_id: userId,
+          enabled,
+        });
+        if (result?.ok !== true || result?.enabled !== enabled) {
+          throw new Error(result?.error || "启停状态没有生效");
+        }
+        session.enabled = enabled;
+        lastDashboardFingerprint = "";
+        lastSessionsFingerprint = "";
+        await loadSessions();
+      } catch (error) {
+        showError(error.message || String(error));
+      } finally {
+        pendingManagementToggles.delete(userId);
+        renderManagement();
+      }
+    }
+    function captureScrollState(root) {
+      return {
+        viewportX: window.scrollX,
+        viewportY: window.scrollY,
+        focusKey: root.contains(document.activeElement)
+          ? document.activeElement.dataset.focusKey || ""
+          : "",
+        panels: Array.from(root.querySelectorAll("[data-preserve-scroll]")).map(node => ({
+          key: node.dataset.preserveScroll,
+          top: node.scrollTop,
+          left: node.scrollLeft,
+        })),
+      };
+    }
+    function restoreScrollState(root, state) {
+      if (!state) return;
+      state.panels.forEach(position => {
+        const node = root.querySelector(`[data-preserve-scroll="${position.key}"]`);
+        if (!node) return;
+        node.scrollTop = position.top;
+        node.scrollLeft = position.left;
+      });
+      if (state.focusKey) {
+        root.querySelector(`[data-focus-key="${state.focusKey}"]`)?.focus({
+          preventScroll: true,
+        });
+      }
+      window.scrollTo(state.viewportX, state.viewportY);
+    }
+    function setSemanticTab(nextTab, { focus = false } = {}) {
+      const selected = nextTab === "previous" ? "previous" : "next";
+      profileUiState(input.value.trim()).semanticTab = selected;
+      dashboard.querySelectorAll("[data-semantic-tab]").forEach(tab => {
+        const active = tab.dataset.semanticTab === selected;
+        tab.setAttribute("aria-selected", active ? "true" : "false");
+        tab.tabIndex = active ? 0 : -1;
+        if (active && focus) tab.focus();
+      });
+      dashboard.querySelectorAll(".semantic-panel").forEach(panel => {
+        panel.hidden = panel.id !== `semantic-panel-${selected}`;
+      });
+    }
+    function toggleMessageTimeline(button) {
+      const expanded = button.getAttribute("aria-expanded") !== "true";
+      const items = Array.from(dashboard.querySelectorAll(".timeline-list .message"));
+      const hiddenCount = Math.max(0, items.length - 6);
+      items.forEach((item, index) => {
+        item.hidden = !expanded && index < hiddenCount;
+      });
+      button.setAttribute("aria-expanded", expanded ? "true" : "false");
+      button.textContent = expanded
+        ? "收起到最近 6 条"
+        : `展开更早的 ${hiddenCount} 条`;
+      profileUiState(input.value.trim()).messagesExpanded = expanded;
+    }
+    async function copyPrompt(button) {
+      const target = document.getElementById(button.dataset.copyTarget || "");
+      const content = target?.textContent || "";
+      let copied = false;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(content);
+          copied = true;
+        }
+      } catch {
+        copied = false;
+      }
+      if (!copied) {
+        const textarea = document.createElement("textarea");
+        textarea.value = content;
+        textarea.setAttribute("readonly", "");
+        textarea.style.cssText = "position:fixed;inset:-9999px auto auto -9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          copied = document.execCommand("copy");
+        } catch {
+          copied = false;
+        }
+        textarea.remove();
+      }
+      const original = "复制原文";
+      button.textContent = copied ? "已复制" : "复制失败";
+      button.setAttribute("aria-live", "polite");
+      window.setTimeout(() => {
+        if (!button.isConnected) return;
+        button.textContent = original;
+        button.removeAttribute("aria-live");
+      }, 1600);
+    }
+    function render(state, messageData, health, { preserveScroll = true } = {}) {
+      if (renderedProfileUserId) captureProfileUiState(renderedProfileUserId);
+      const scrollState = preserveScroll ? captureScrollState(dashboard) : null;
+      const profileUserId = String(state.user_id || input.value || "");
+      const uiState = profileUiState(profileUserId);
+      const issue = state.active_issue;
+      const light = state.light_guidance;
+      const semantics = state.relationship_semantics || {};
+      const precheck = state.last_precheck_trace || {};
+      const analysisTrace = state.last_analysis_trace || {};
+      const cacheTrace = precheck.analysis || analysisTrace;
+      const usage = cacheTrace.usage || {};
+      const roundSequence = Number(state.round_sequence || 0);
+      const nextDeepRound = Math.floor(roundSequence / 6) * 6 + 6;
+      const roundsUntilDeep = Math.max(0, nextDeepRound - roundSequence);
+      const cycleProgress = roundSequence % 6 / 6 * 100;
+      const semanticTab = uiState.semanticTab === "previous" ? "previous" : "next";
+      const messageItems = Array.isArray(messageData.messages) ? messageData.messages : [];
+      const nextPrompt = state.next_compiled_preview || (state.enabled ? "尚未编译。" : "已关闭。");
+      const previousPrompt = state.last_compiled_context || "尚未编译。";
+      const diagnosticsAnomaly = Boolean(
+        precheck.gate_hit
+        || cacheTrace.error
+        || state.last_analysis_status === "invalid"
+      );
+      const diagnosticsOpen = uiState.diagnosticsOpen == null
+        ? diagnosticsAnomaly
+        : uiState.diagnosticsOpen;
+      const portraitTone = relationshipTone(state);
+      const rebuildBlocked = (
+        !state.enabled
+        || health.operation_mode !== "observe"
+        || state.relationship_role === "bonded"
+      );
+      const reflectBlocked = !state.enabled;
+      const currentFeeling = String(state.impression || "").trim();
+      const previousFeeling = taggedValue(state.last_compiled_context, "感受");
+      const previewFeeling = taggedValue(state.next_compiled_preview, "感受");
+      const analysisRunning = state.last_analysis_status === "running";
+      const feelingApplied = Boolean(
+        currentFeeling && previousFeeling === currentFeeling
+      );
+      const feelingQueued = Boolean(
+        currentFeeling
+        && previousFeeling !== currentFeeling
+        && previewFeeling === currentFeeling
+      );
+      const feelingStatus = !currentFeeling
+        ? "当前无明确感受"
+        : feelingApplied
+          ? "已用于上一轮"
+          : feelingQueued
+            ? "已生成，待下一轮"
+            : "等待编译确认";
+      const feelingTone = feelingApplied
+        ? "tone-success"
+        : feelingQueued || analysisRunning
+          ? "tone-warning"
+          : "";
+      const rebuildTitle = !state.enabled
+        ? "此 UMO 的陪伴功能已关闭，不会调用分析模型。"
+        : state.relationship_role === "bonded"
+          ? "正式绑定期间不能重建档案；请先解除绑定。"
+          : health.operation_mode !== "observe"
+            ? "档案重建只在 observe 模式可用。"
+            : "保留消息并从零重建当前档案";
+      dashboard.innerHTML = `<div class="grid">
+        <section class="panel wide hero-panel">
+          <div class="identity">
+            <div class="identity-main">
+              <span class="avatar">${esc(initial(state.sender_id))}</span>
+              <div class="identity-title">
+                <h2>${esc(state.sender_id || state.user_id)}</h2>
+                <p class="muted">${esc(state.platform || "未知实例")} · ${esc(state.session_type || "私聊")}</p>
+              </div>
+            </div>
+            <span class="pill">${esc(named(stageNames, state.relationship_stage))}</span>
+          </div>
+          <div class="metrics">
+            ${metric("熟悉度", state.familiarity, semantics.familiarity, 0, 100, "#4b65d1")}
+            ${metric("信任度", state.trust, semantics.trust, 0, 100, "#2d9b75")}
+            ${metric("亲和度", state.affinity, semantics.affinity, -100, 100, "#c65d86")}
+          </div>
+          <div class="status-strip">
+            <div class="status-card ${state.active_injection ? "tone-success" : "tone-danger"}">
+              <span class="status-label">Injection</span>
+              <span class="status-value">${state.active_injection ? "提示词注入中" : "当前不注入"}</span>
+              <span class="status-detail">${esc(health.operation_mode || "-")} mode · 第 ${esc(state.round_sequence ?? 0)} 轮</span>
+            </div>
+            <div class="status-card ${analysisRunning ? "tone-warning" : ""}">
+              <span class="status-label">Analysis</span>
+              <span class="status-value">${esc(analysisRunning ? "大总结正在运行" : named(analysisStatusNames, state.last_analysis_status))}</span>
+              <span class="status-detail">${state.last_analysis_round ? `最近覆盖第 ${esc(state.last_analysis_round)} 轮` : "尚无分析结果"}</span>
+            </div>
+            <div class="status-card ${feelingTone}">
+              <span class="status-label">Feeling trace</span>
+              <span class="status-value">${esc(feelingStatus)}</span>
+              <span class="status-detail">${esc(currentFeeling || "档案尚未形成第一人称态度")}</span>
+            </div>
+          </div>
+        </section>
+        <section class="panel wide">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">Injection timeline</div>
+              <h2>感受注入追踪</h2>
+            </div>
+            <span class="pill">${esc(feelingStatus)}</span>
+          </div>
+          <div class="trace-grid">
+            <div class="trace-step">
+              <span class="status-label">当前档案</span>
+              <strong>大总结生成的感受</strong>
+              <p>${esc(currentFeeling || "尚未形成明确感受")}</p>
+            </div>
+            <div class="trace-step">
+              <span class="status-label">上一轮实际</span>
+              <strong>回复前编译快照</strong>
+              <p>${esc(previousFeeling || "快照中未找到 <感受>")}</p>
+            </div>
+            <div class="trace-step">
+              <span class="status-label">下一轮预览</span>
+              <strong>按当前档案编译</strong>
+              <p>${esc(previewFeeling || "预览中未找到 <感受>")}</p>
+            </div>
+          </div>
+          <div class="trace-note">${esc(analysisRunning
+            ? "后台大总结尚未落库；此时到来的新请求可能先使用旧感受。"
+            : feelingQueued
+              ? "新感受已经落库并进入下一轮预览，但上一轮实际快照仍是旧状态。"
+              : "这里同时展示生成态、上一轮实际态和下一轮预览，避免把异步时序误认成裁剪。")}</div>
+        </section>
+        <section class="panel wide editorial-card ${portraitTone}">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">Relationship portrait</div>
+              <h2>关系侧写</h2>
+            </div>
+            <span class="pill">${esc(named(stageNames, state.effective_relationship_stage))}</span>
+          </div>
+          <div class="editorial-signals" aria-label="关系关键状态">
+            <div class="editorial-signal">
+              <span>姿态</span>
+              <strong>${esc(named(postureNames, state.posture))}</strong>
+            </div>
+            <div class="editorial-signal">
+              <span>实际阶段</span>
+              <strong>${esc(named(stageNames, state.effective_relationship_stage))}</strong>
+            </div>
+            <div class="editorial-signal">
+              <span>正式身份</span>
+              <strong>${esc(named(bondStatusNames, state.bond_status))}</strong>
+            </div>
+            <div class="editorial-signal">
+              <span>当前问题</span>
+              <strong>${esc(issue
+                ? `${named(issueNames, issue.kind)} · ${named(phaseNames, issue.phase)}`
+                : "无待处理问题")}</strong>
+            </div>
+          </div>
+          <div class="portrait-layout">
+            <div class="portrait-primary">
+              <div class="portrait-lead">
+                <span class="portrait-label">关系现状</span>
+                <strong>${esc(semantics.overall || "关系语义尚未形成")}</strong>
+              </div>
+              <div class="portrait-copy">
+                <article class="narrative-block">
+                  <span class="portrait-label">关系摘要</span>
+                  <p>${esc(state.relationship_summary || "尚未形成关系总结")}</p>
+                </article>
+                <article class="narrative-block feeling-quote">
+                  <span class="portrait-label">当前感受</span>
+                  <p>${esc(currentFeeling || "尚未形成明确感受")}</p>
+                </article>
+              </div>
+            </div>
+            <aside class="portrait-meta" aria-label="关系辅助信息">
+              ${compactFacts([
+                ["当前人格", state.persona_id],
+                ["人格来源", named(personaSourceNames, state.persona_source)],
+                ["人格解析", state.persona_error || "正常"],
+                ["绑定窗口", state.bond_user_id],
+                ["绑定时间", time(state.bond_bound_at)],
+                ["问题摘要", issue?.summary],
+                ["轻提醒", light
+                  ? `${named(signalNames, light.signal)} · ${named(reminderNames, light.reminder)}`
+                  : ""],
+              ])}
+            </aside>
+          </div>
+        </section>
+        <section class="panel wide">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">Interaction rhythm</div>
+              <h2>互动节奏</h2>
+            </div>
+            <span class="runtime-badge ${state.enabled ? "enabled" : ""}">
+              ${state.enabled ? "陪伴已开启" : "陪伴已关闭"}
+            </span>
+          </div>
+          <div class="rhythm-layout">
+            <div class="cycle-card">
+              <div class="cycle-heading">
+                <div>
+                  <span>六轮大总结周期</span>
+                  <strong>下一次在第 ${esc(nextDeepRound)} 轮</strong>
+                </div>
+                <span class="cycle-count">还差 ${esc(roundsUntilDeep)} 轮</span>
+              </div>
+              <div class="cycle-track" aria-label="大总结周期进度">
+                <div class="cycle-fill" style="--cycle-progress:${cycleProgress}%"></div>
+              </div>
+              <div class="cycle-steps"><span>本周期起点</span><span>当前第 ${esc(roundSequence)} 轮</span><span>第 ${esc(nextDeepRound)} 轮</span></div>
+            </div>
+            <div class="rhythm-card">
+              <div class="rhythm-stats">
+                <div class="rhythm-stat"><span>最近大总结</span><strong>第 ${esc(state.last_deep_round ?? 0)} 轮</strong></div>
+                <div class="rhythm-stat"><span>最近分析</span><strong>${esc(state.last_analysis_round
+                  ? `${named(analysisKindNames, state.last_analysis_kind)} · 第 ${state.last_analysis_round} 轮`
+                  : "尚未运行")}</strong></div>
+                <div class="rhythm-stat"><span>分析判断</span><strong>${esc(state.last_analysis_signal
+                  ? `${named(signalNames, state.last_analysis_signal)}${state.last_analysis_confidence ? ` · ${state.last_analysis_confidence}` : ""}`
+                  : "无")}</strong></div>
+                <div class="rhythm-stat"><span>最近注入</span><strong>${state.last_context_injected ? "已注入" : "未注入"}</strong></div>
+              </div>
+              <p class="rhythm-note">${esc(state.last_analysis_note || named(analysisStatusNames, state.last_analysis_status))}</p>
+              <div class="rhythm-meta">${esc(health.operation_mode || "-")} mode · ${esc(health.background_tasks ?? 0)} 个后台任务 · ${esc(state.umo || state.user_id || "-")}</div>
+            </div>
+          </div>
+          <div class="action-bar">
+            <p>${state.enabled ? "分析操作只影响当前完整 UMO。" : "此会话已关闭；如需启用，请前往“启停管理”。"}</p>
+            <div class="actions">
+              <button data-action="reflect" type="button" ${reflectBlocked ? "disabled" : ""}>立即大总结</button>
+              <button data-action="rebuild" type="button" ${rebuildBlocked ? "disabled" : ""} title="${esc(rebuildTitle)}">保留消息并重建档案</button>
+              <button data-action="reset" class="danger" type="button">重置本会话</button>
+            </div>
+          </div>
+        </section>
+        <section class="panel wide editorial-card ${portraitTone}">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">Semantic projection</div>
+              <h2>语义投影</h2>
+            </div>
+            <div class="semantic-tabs" role="tablist" aria-label="编译提示词版本">
+              <button id="semantic-tab-next" class="semantic-tab" type="button" role="tab"
+                data-semantic-tab="next" data-focus-key="semantic-next"
+                aria-controls="semantic-panel-next"
+                aria-selected="${semanticTab === "next" ? "true" : "false"}"
+                tabindex="${semanticTab === "next" ? "0" : "-1"}">下一轮预览</button>
+              <button id="semantic-tab-previous" class="semantic-tab" type="button" role="tab"
+                data-semantic-tab="previous" data-focus-key="semantic-previous"
+                aria-controls="semantic-panel-previous"
+                aria-selected="${semanticTab === "previous" ? "true" : "false"}"
+                tabindex="${semanticTab === "previous" ? "0" : "-1"}">上一轮实际</button>
+            </div>
+          </div>
+          <div id="semantic-panel-next" class="semantic-panel" role="tabpanel"
+            aria-labelledby="semantic-tab-next" ${semanticTab === "next" ? "" : "hidden"}>
+            <p class="semantic-note">${esc(!state.enabled
+              ? "此 UMO 已关闭；不会注入、记录或调用陪伴分析模型。"
+              : health.operation_mode === "active"
+                ? "依据当前档案即时生成；下一轮会注入同类内容。"
+                : "依据当前档案即时生成；observe 模式只预览，不会注入。")}</p>
+            ${semanticProjection(nextPrompt)}
+            <details class="raw-prompt" data-profile-disclosure="raw-prompt"
+              data-raw-prompt="next" ${uiState.rawPromptOpen.next ? "open" : ""}>
+              <summary data-focus-key="raw-next">查看下一轮原始提示词</summary>
+              <div class="raw-prompt-content">
+                <div class="raw-prompt-toolbar">
+                  <button class="copy-prompt" type="button" data-copy-target="semantic-raw-next"
+                    data-focus-key="copy-next">复制原文</button>
+                </div>
+                <pre id="semantic-raw-next" tabindex="0" data-preserve-scroll="compiled-preview">${esc(nextPrompt)}</pre>
+              </div>
+            </details>
+          </div>
+          <div id="semantic-panel-previous" class="semantic-panel" role="tabpanel"
+            aria-labelledby="semantic-tab-previous" ${semanticTab === "previous" ? "" : "hidden"}>
+            <p class="semantic-note">关系分析发生在回复完成后，因此这里可能比当前档案落后一轮。</p>
+            ${semanticProjection(previousPrompt)}
+            <details class="raw-prompt" data-profile-disclosure="raw-prompt"
+              data-raw-prompt="previous" ${uiState.rawPromptOpen.previous ? "open" : ""}>
+              <summary data-focus-key="raw-previous">查看上一轮原始提示词</summary>
+              <div class="raw-prompt-content">
+                <div class="raw-prompt-toolbar">
+                  <button class="copy-prompt" type="button" data-copy-target="semantic-raw-previous"
+                    data-focus-key="copy-previous">复制原文</button>
+                </div>
+                <pre id="semantic-raw-previous" tabindex="0" data-preserve-scroll="compiled-context">${esc(previousPrompt)}</pre>
+              </div>
+            </details>
+          </div>
+        </section>
+        <section class="panel wide">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">Conversation record</div>
+              <h2>互动记录</h2>
+            </div>
+            <span class="pill">已加载 ${esc(messageItems.length)} 条</span>
+          </div>
+          ${messages(messageItems, uiState.messagesExpanded)}
+        </section>
+        <details class="panel wide diagnostics-shell${diagnosticsAnomaly ? " tone-danger" : ""}"
+          data-profile-disclosure="diagnostics" ${diagnosticsOpen ? "open" : ""}>
+          <summary data-focus-key="diagnostics">
+            <div class="diagnostics-summary-copy">
+              <div class="section-kicker">Engineering diagnostics</div>
+              <h2>工程诊断</h2>
+              <p class="muted">预检、模型裁决与缓存用量默认收起，需要时再拆开看。</p>
+            </div>
+            <div class="diagnostic-badges" aria-label="诊断摘要">
+              <span class="diagnostic-badge ${precheck.gate_hit ? "danger" : ""}">
+                预检：${esc(precheck.gate_hit ? "命中" : "正常")}
+              </span>
+              <span class="diagnostic-badge ${analysisRunning ? "warning" : state.last_analysis_status === "invalid" ? "danger" : ""}">
+                分析：${esc(named(analysisStatusNames, state.last_analysis_status))}
+              </span>
+              <span class="diagnostic-badge ${cacheTrace.error ? "danger" : ""}">
+                缓存：${esc(cacheTrace.error ? "错误" : cacheRatio(usage.cache_ratio))}
+              </span>
+            </div>
+          </summary>
+          <div class="diagnostics-body">
+            <div class="diagnostic-grid">
+              <section class="diagnostic-card">
+                <h3>严重事件预检</h3>
+                ${facts([
+                  ["本地筛查", precheck.gate_hit ? `命中候选 · ${named(issueNames, precheck.gate_category)}` : "未命中"],
+                  ["实际确认模型", precheck.confirmation_called ? "是" : "否"],
+                  ["跳过原因", precheck.skip_reason || (precheck.gate_hit ? "-" : "正常消息无需调用")],
+                  ["目标轮次", precheck.target_round ?? "-"],
+                ])}
+              </section>
+              <section class="diagnostic-card">
+                <h3>分析缓存与用量</h3>
+                ${facts([
+                  ["提示词版本", cacheTrace.prompt_version || "-"],
+                  ["动态输入字符", cacheTrace.prompt_chars ?? "-"],
+                  ["未缓存输入 tokens", tokenValue(usage.input_other)],
+                  ["已缓存输入 tokens", tokenValue(usage.input_cached)],
+                  ["输出 tokens", tokenValue(usage.output)],
+                  ["缓存命中率", cacheRatio(usage.cache_ratio)],
+                  ["调用错误", cacheTrace.error || "-"],
+                ])}
+              </section>
+              <section class="diagnostic-card wide">
+                <h3>模型观察 → 代码裁决</h3>
+                <p class="semantic-note">模型标签只供代码读取；姿态、阶段和三维数值均由固定规则裁决。</p>
+                <pre tabindex="0" data-preserve-scroll="analysis-chain">${esc(jsonView({
+                  model_observation: analysisTrace.model_tags || {},
+                  code_decision: analysisTrace.code_decision || {},
+                  rebuild_steps: analysisTrace.steps || [],
+                }))}</pre>
+              </section>
+            </div>
+          </div>
+        </details>
+      </div>`;
+      renderedProfileUserId = profileUserId;
+      restoreScrollState(dashboard, scrollState);
+    }
+    async function loadSessions({ silent = false } = {}) {
+      const data = await apiGet(path("sessions"));
+      const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+      if (silent && (hasTextSelection() || isEditing())) {
+        updateLiveStatus();
+        return knownSessions;
+      }
+      const fingerprint = JSON.stringify(sessions);
+      knownSessions = sessions;
+      if (!knownSessions.some(item => item.user_id === input.value)) {
+        input.value = knownSessions[0]?.user_id || "";
+      }
+      if (fingerprint !== lastSessionsFingerprint) {
+        lastSessionsFingerprint = fingerprint;
+        renderProfiles(profileSearch.value);
+        renderManagement();
+      }
+      return knownSessions;
+    }
+    async function refresh({ silent = false, preserveScroll = true, force = false } = {}) {
+      const userId = input.value.trim();
+      if (!userId || (loading && !force)) return;
+      const generation = ++refreshGeneration;
+      loading = true;
+      if (!silent) {
+        $("#refresh").disabled = true;
+        showError();
+      }
+      try {
+        const [state, messageData, health] = await Promise.all([
+          apiGet(path("state"), { user_id: userId }),
+          apiGet(path("messages"), { user_id: userId, limit: 40 }),
+          apiGet(path("health")),
+        ]);
+        if (generation !== refreshGeneration || input.value.trim() !== userId) return;
+        if (silent && (hasTextSelection() || isEditing())) {
+          updateLiveStatus();
+          return;
+        }
+        const fingerprint = JSON.stringify([state, messageData, health]);
+        if (!silent || fingerprint !== lastDashboardFingerprint) {
+          lastDashboardFingerprint = fingerprint;
+          render(state, messageData, health, { preserveScroll });
+          renderProfiles(profileSearch.value);
+        }
+      } catch (error) {
+        showError(error.message || String(error));
+      } finally {
+        if (generation === refreshGeneration) {
+          loading = false;
+          if (!silent) $("#refresh").disabled = false;
+        }
+      }
+    }
+    async function syncLive(silent = true) {
+      if (document.hidden || loading || autoSyncing) return;
+      if (silent && (hasTextSelection() || isEditing())) {
+        updateLiveStatus();
+        return;
+      }
+      autoSyncing = true;
+      try {
+        await loadSessions({ silent });
+        if (activeView === "profile" && input.value) {
+          await refresh({ silent });
+        }
+      } catch (error) {
+        showError(error.message || String(error));
+      } finally {
+        autoSyncing = false;
+      }
+    }
+    let pendingAction = null;
+    let pendingTimer = null;
+    async function act(name) {
+      const userId = input.value.trim();
+      if (!userId) return;
+      if (name !== "rebuild" && name === pendingAction) {
+        clearTimeout(pendingTimer);
+        pendingAction = null;
+      } else if (name !== "rebuild") {
+        pendingAction = name;
+        const btn = document.querySelector(`[data-action="${name}"]`);
+        if (btn) {
+          const original = btn.textContent;
+          btn.textContent = name === "reset" ? "再点一次确认重置" : "再点一次确认";
+          pendingTimer = setTimeout(() => {
+            pendingAction = null;
+            if (btn) btn.textContent = original;
+          }, 3000);
+        }
+        return;
+      }
+      try {
+        refreshGeneration += 1;
+        const result = await apiPost(actionPath(name, userId), { user_id: userId });
+        if (name === "reset" && result?.ok !== true) {
+          throw new Error(result?.error || "重置请求未执行");
+        }
+        lastDashboardFingerprint = "";
+        await loadSessions();
+        if (input.value.trim() === userId) {
+          await refresh({ preserveScroll: false, force: true });
+        }
+      } catch (error) {
+        showError(error.message || String(error));
+      } finally {
+        const btn = document.querySelector(`[data-action="${name}"]`);
+        if (btn && name === "reset") btn.textContent = "重置本会话";
+        if (btn && name === "reflect") btn.textContent = "立即大总结";
+      }
+    }
+
+    $("#refresh").addEventListener("click", () => syncLive(false));
+    profileSearch.addEventListener("input", () => renderProfiles(profileSearch.value));
+    managementSearch.addEventListener("input", renderManagement);
+    managementSort.addEventListener("change", renderManagement);
+    document.querySelector(".view-tabs").addEventListener("keydown", event => {
+      if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      const nextView = activeView === "profile" ? "management" : "profile";
+      setActiveView(nextView, { focusTab: true });
+      if (nextView === "profile" && input.value) {
+        refresh({ preserveScroll: false, force: true });
+      }
+    });
+    document.addEventListener("keydown", event => {
+      const semanticTab = event.target.closest?.("[data-semantic-tab]");
+      if (!semanticTab || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      event.preventDefault();
+      setSemanticTab(
+        semanticTab.dataset.semanticTab === "next" ? "previous" : "next",
+        { focus: true },
+      );
+    });
+    document.addEventListener("click", event => {
+      const viewTab = event.target.closest("[data-view]");
+      if (viewTab) {
+        const nextView = viewTab.dataset.view;
+        if (nextView !== activeView) {
+          setActiveView(nextView);
+          if (nextView === "profile" && input.value) {
+            refresh({ preserveScroll: false, force: true });
+          }
+        }
+        return;
+      }
+      const semanticTab = event.target.closest("[data-semantic-tab]");
+      if (semanticTab) {
+        setSemanticTab(semanticTab.dataset.semanticTab);
+        return;
+      }
+      const copyButton = event.target.closest("[data-copy-target]");
+      if (copyButton) {
+        copyPrompt(copyButton);
+        return;
+      }
+      const messageToggle = event.target.closest("[data-toggle-messages]");
+      if (messageToggle) {
+        toggleMessageTimeline(messageToggle);
+        return;
+      }
+      const filter = event.target.closest("[data-status-filter]");
+      if (filter) {
+        managementFilter = filter.dataset.statusFilter || "all";
+        renderManagement();
+        return;
+      }
+      const managementToggle = event.target.closest("[data-management-toggle]");
+      if (managementToggle) {
+        toggleManagementSession(managementToggle);
+        return;
+      }
+      const openProfile = event.target.closest("[data-open-profile]");
+      if (openProfile) {
+        input.value = decodeURIComponent(openProfile.dataset.openProfile || "");
+        setActiveView("profile");
+        refresh({ preserveScroll: false, force: true });
+        return;
+      }
+      const profile = event.target.closest("[data-user-id]");
+      if (profile) {
+        input.value = decodeURIComponent(profile.dataset.userId);
+        refresh({ preserveScroll: false });
+        return;
+      }
+      const button = event.target.closest("[data-action]");
+      if (button) act(button.dataset.action);
+    });
+
+    (async () => {
+      try {
+        const sessions = await loadSessions();
+        if (input.value) await refresh();
+        else dashboard.innerHTML = `<section class="panel wide"><div class="empty">暂无会话。完成一次私聊后再来，凡人。</div></section>`;
+      } catch (error) {
+        showError(error.message || String(error));
+      }
+    })();
+    document.addEventListener("selectionchange", updateLiveStatus);
+    window.setInterval(() => syncLive(true), 5000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) syncLive(true);
+    });
+  </script>
+</body>
+</html>

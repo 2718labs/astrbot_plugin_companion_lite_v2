@@ -1,0 +1,18 @@
+id: astrbot_plugin_companion_lite_v2
+name: astrbot_plugin_companion_lite_v2
+display_name: 陪伴Lite V2
+version: 2.0.0
+short_desc: 用轻量反思维护会变熟、会信任也会疏远的关系
+desc: 独立于 CompanionLite V1 的精简关系侧车。小模型观察关系证据与人格感受，代码负责关系姿态、阶段和三维数值；动态状态携带本轮投入、距离、处境、感受与表达。
+author: 6TBWhite
+type: star
+homepage: https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2
+license: MIT
+repo: https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2
+branch: main
+astrbot_version: ">=4.26.3"
+tags:
+  - companion
+  - private-chat
+  - relationship
+requirements: []

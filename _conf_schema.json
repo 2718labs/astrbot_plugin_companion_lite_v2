@@ -1,0 +1,73 @@
+{
+  "Basic_Settings": {
+    "description": "基础设置",
+    "hint": "默认先观察真实对话，只记录和分析；确认关系判断稳定后再切换 active。",
+    "type": "object",
+    "items": {
+      "operation_mode": {
+        "description": "运行模式",
+        "hint": "observe 只分析不注入；active 向主人格注入关系上下文。",
+        "type": "string",
+        "options": ["observe", "active"],
+        "default": "observe"
+      },
+      "enable_message_capture": {
+        "description": "启用私聊捕获",
+        "hint": "关闭后不记录新互动，也不触发反思。",
+        "type": "bool",
+        "default": true
+      },
+      "min_message_length": {
+        "description": "最短消息长度",
+        "type": "int",
+        "default": 1
+      },
+      "max_message_length": {
+        "description": "单条入库字符上限",
+        "hint": "同时限制用户消息和主人格回复；超长内容保留开头与结尾，中间明确标记截断，不会整条丢弃。",
+        "type": "int",
+        "default": 400
+      },
+      "max_buffer_rounds": {
+        "description": "保留完整轮次数",
+        "hint": "只影响 V2 独立消息缓冲。",
+        "type": "int",
+        "default": 24
+      }
+    }
+  },
+  "Reflection_Settings": {
+    "description": "关系反思",
+    "hint": "轻分析固定每2轮运行；深分析固定每6轮运行，并综合最近最多20条已完成消息。",
+    "type": "object",
+    "items": {
+      "reflection_provider_id": {
+        "description": "反思 LLM 提供商 ID",
+        "hint": "留空使用当前默认提供商。",
+        "type": "string",
+        "_special": "select_provider",
+        "default": ""
+      },
+      "persona_prompt": {
+        "description": "人格参考",
+        "hint": "可显式提供主人格；留空时临时采用当轮主请求的人格参考。只用于形成第一人称可修订感受，不授予自由回复权限。",
+        "type": "text",
+        "default": ""
+      }
+    }
+  },
+  "Prompt_Settings": {
+    "description": "语义上下文",
+    "type": "object",
+    "items": {
+      "max_context_chars": {
+        "description": "最大注入字符数",
+        "hint": "五字段动态关系状态的字符预算，范围 260–340；稳定解释协议不计入此预算。",
+        "type": "int",
+        "min": 260,
+        "max": 340,
+        "default": 340
+      }
+    }
+  }
+}
