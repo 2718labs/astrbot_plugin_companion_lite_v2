@@ -26,7 +26,7 @@
 
 调试页提供“关系档案 / 启停管理”两个内部页签。关系档案采用编辑式人物侧写，依次展示关系结论、六轮互动节奏、五标签语义投影、消息时间线和默认折叠的工程诊断；单会话启停开关已从档案页移除。管理视图继续负责统计、搜索、筛选、排序和逐会话即时开关。五秒自动刷新会保留页签、折叠、消息展开、滚动、交互焦点和正在提交的行；360px 下不产生横向滚动。
 
-V1 不是运行基线，只保留作历史参考。LivingMemory 继续独立负责用户事实和长期记忆；V2 只调整投入、距离与边界。
+LivingMemory 继续独立负责用户事实和长期记忆；CompanionLite V2 只调整投入、距离与边界。
 
 ## 位置
 
@@ -175,7 +175,7 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 - 管理页临时将一个已关闭 UMO 开启，统计由 `1 / 1` 同步为 `2 / 0`，随后恢复为原始 `1 / 1`；没有批量入口或批量接口。
 - 360px 实测管理面板 `scrollWidth == clientWidth`，会话卡片与逐行开关均完整可见。
 - 页面控制台没有 CompanionLite 报错；仅观察到 AstrBot 市场页原有的分类翻译警告。
-- V1、LivingMemory、Favour Ultra 与 Sylanne 的源码和数据：未修改。
+- LivingMemory、Favour Ultra、Sylanne 及其他插件的源码和数据：未修改。
 
 ## 已知限制与后续
 
@@ -194,5 +194,5 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 3. 用一条真实私聊检查“最近注入”是否变为“是”
 4. 观察主人格是否按新五字段语义行动
 5. 下一轮单独审计 severe / light / deep 小模型提示词
-6. 不修改 V1 或 LivingMemory 数据
+6. 不修改其他插件或 LivingMemory 数据
 ```

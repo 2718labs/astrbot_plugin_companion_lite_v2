@@ -16,6 +16,8 @@ def test_debug_page_is_self_contained_and_uses_plugin_bridge():
     assert 'data-user-id="' in text
     assert "window.localStorage" not in text
     assert "每 5 秒自动同步" in text
+    assert "暂无会话。完成一次私聊后即可在此查看关系档案。" in text
+    assert "凡人" not in text
     assert "hasTextSelection" in text
     assert "silent && (hasTextSelection() || isEditing())" in text
     assert "selectionchange" in text

@@ -1946,7 +1946,7 @@
       try {
         const sessions = await loadSessions();
         if (input.value) await refresh();
-        else dashboard.innerHTML = `<section class="panel wide"><div class="empty">暂无会话。完成一次私聊后再来，凡人。</div></section>`;
+        else dashboard.innerHTML = `<section class="panel wide"><div class="empty">暂无会话。完成一次私聊后即可在此查看关系档案。</div></section>`;
       } catch (error) {
         showError(error.message || String(error));
       }

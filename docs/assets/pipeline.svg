@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="680" viewBox="0 0 1280 680" role="img" aria-labelledby="title description">
+  <title id="title">CompanionLite V2 对话管线</title>
+  <desc id="description">上半部分展示私聊消息如何经过严重预检、关系读取和五标签编译影响本轮回复；下半部分展示完整来回如何经过轻分析或深分析、证据提交和代码裁决更新关系档案。</desc>
+
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F8F7FF"/>
+      <stop offset="0.52" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F4FBF8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#241B4B" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrow-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8E82BD"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#62A990"/>
+    </marker>
+    <style>
+      text {
+        font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+        fill: #28243C;
+      }
+      .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 1.8px; }
+      .title { font-size: 30px; font-weight: 760; letter-spacing: -0.5px; }
+      .subtitle { font-size: 14px; fill: #68647A; }
+      .lane-title { font-size: 17px; font-weight: 720; }
+      .lane-note { font-size: 12px; fill: #6F6A80; }
+      .node-title { font-size: 17px; font-weight: 720; }
+      .node-sub { font-size: 12px; fill: #777286; }
+      .step { font-size: 11px; font-weight: 760; }
+      .chip { font-size: 10px; font-weight: 680; }
+      .footer { font-size: 12px; font-weight: 650; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="680" rx="28" fill="url(#canvas)"/>
+  <rect x="1" y="1" width="1278" height="678" rx="27" fill="none" stroke="#E8E5F0" stroke-width="2"/>
+
+  <g transform="translate(56 24)">
+    <rect width="86" height="25" rx="12.5" fill="#E9E4FF"/>
+    <text x="43" y="17" text-anchor="middle" class="eyebrow" fill="#6753C7">PIPELINE</text>
+    <text x="0" y="62" class="title">一轮对话，两个阶段</text>
+    <text x="0" y="88" class="subtitle">先决定本轮如何回应，再用完整来回更新下一轮关系。</text>
+  </g>
+
+  <g transform="translate(916 60)">
+    <circle cx="0" cy="0" r="5" fill="#7B68D7"/>
+    <text x="13" y="4" class="lane-note">本轮回复</text>
+    <circle cx="104" cy="0" r="5" fill="#2A9D73"/>
+    <text x="117" y="4" class="lane-note">关系学习</text>
+    <circle cx="218" cy="0" r="5" fill="#E59A32"/>
+    <text x="231" y="4" class="lane-note">按需调用</text>
+  </g>
+
+  <g transform="translate(0 20)">
+  <rect x="48" y="134" width="1184" height="222" rx="24" fill="#F5F2FF" stroke="#E2DCF9" stroke-width="1.5"/>
+  <g transform="translate(76 158)">
+    <rect width="30" height="23" rx="11.5" fill="#7160CC"/>
+    <text x="15" y="16" text-anchor="middle" class="step" fill="#FFFFFF">01</text>
+    <text x="43" y="17" class="lane-title">主回复前 · 同步路径</text>
+  </g>
+  <g transform="translate(948 158)">
+    <circle cx="5" cy="10" r="4" fill="#E59A32"/>
+    <text x="17" y="14" class="lane-note">未命中候选时，0 次额外 LLM</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="76" y="205" width="180" height="112" rx="17" fill="#FFFFFF" stroke="#E3DDF7"/>
+    <circle cx="101" cy="230" r="13" fill="#ECE8FF"/>
+    <text x="101" y="234" text-anchor="middle" class="step" fill="#6753C7">1</text>
+    <text x="96" y="268" class="node-title">私聊消息</text>
+    <text x="96" y="291" class="node-sub">裁剪并写入消息缓冲</text>
+
+    <rect x="286" y="205" width="180" height="112" rx="17" fill="#FFFFFF" stroke="#E3DDF7"/>
+    <circle cx="311" cy="230" r="13" fill="#FFF2DD"/>
+    <text x="311" y="234" text-anchor="middle" class="step" fill="#C8740C">2</text>
+    <text x="306" y="268" class="node-title">严重预检</text>
+    <text x="306" y="291" class="node-sub">命中候选才做 5 秒确认</text>
+
+    <rect x="496" y="205" width="180" height="112" rx="17" fill="#FFFFFF" stroke="#E3DDF7"/>
+    <circle cx="521" cy="230" r="13" fill="#ECE8FF"/>
+    <text x="521" y="234" text-anchor="middle" class="step" fill="#6753C7">3</text>
+    <text x="516" y="268" class="node-title">读取关系</text>
+    <text x="516" y="291" class="node-sub">UMO · 人格 · 正式绑定</text>
+
+    <rect x="706" y="205" width="220" height="112" rx="17" fill="#FFFFFF" stroke="#E3DDF7"/>
+    <circle cx="731" cy="230" r="13" fill="#ECE8FF"/>
+    <text x="731" y="234" text-anchor="middle" class="step" fill="#6753C7">4</text>
+    <text x="726" y="264" class="node-title">五标签语义编译</text>
+    <g transform="translate(726 282)">
+      <rect width="32" height="18" rx="9" fill="#F0EDFC"/><text x="16" y="13" text-anchor="middle" class="chip" fill="#6753C7">投入</text>
+      <rect x="36" width="32" height="18" rx="9" fill="#F0EDFC"/><text x="52" y="13" text-anchor="middle" class="chip" fill="#6753C7">关系</text>
+      <rect x="72" width="32" height="18" rx="9" fill="#F0EDFC"/><text x="88" y="13" text-anchor="middle" class="chip" fill="#6753C7">处境</text>
+      <rect x="108" width="32" height="18" rx="9" fill="#F0EDFC"/><text x="124" y="13" text-anchor="middle" class="chip" fill="#6753C7">感受</text>
+      <rect x="144" width="32" height="18" rx="9" fill="#F0EDFC"/><text x="160" y="13" text-anchor="middle" class="chip" fill="#6753C7">表达</text>
+    </g>
+
+    <rect x="956" y="205" width="220" height="112" rx="17" fill="#FFFFFF" stroke="#D9D1F4"/>
+    <circle cx="981" cy="230" r="13" fill="#DED6FF"/>
+    <text x="981" y="234" text-anchor="middle" class="step" fill="#5E49C3">5</text>
+    <text x="976" y="264" class="node-title">生成主人格回复</text>
+    <g transform="translate(976 281)">
+      <rect width="82" height="20" rx="10" fill="#F0EDFC"/>
+      <text x="41" y="14" text-anchor="middle" class="chip" fill="#6753C7">observe · 预览</text>
+      <rect x="88" width="78" height="20" rx="10" fill="#E7E1FF"/>
+      <text x="127" y="14" text-anchor="middle" class="chip" fill="#5D49BC">active · 注入</text>
+    </g>
+  </g>
+
+  <path d="M 256 261 H 278" fill="none" stroke="#8E82BD" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <path d="M 466 261 H 488" fill="none" stroke="#8E82BD" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <path d="M 676 261 H 698" fill="none" stroke="#8E82BD" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <path d="M 926 261 H 948" fill="none" stroke="#8E82BD" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  </g>
+
+  <g transform="translate(0 40)">
+  <rect x="48" y="382" width="1184" height="226" rx="24" fill="#F1FAF6" stroke="#D6EEE4" stroke-width="1.5"/>
+  <g transform="translate(76 406)">
+    <rect width="30" height="23" rx="11.5" fill="#238864"/>
+    <text x="15" y="16" text-anchor="middle" class="step" fill="#FFFFFF">02</text>
+    <text x="43" y="17" class="lane-title">主人格回复后 · 关系学习</text>
+  </g>
+  <text x="955" y="423" class="lane-note">分析结果从下一轮开始生效</text>
+
+  <g filter="url(#shadow)">
+    <rect x="76" y="453" width="170" height="112" rx="17" fill="#FFFFFF" stroke="#D7EDE4"/>
+    <circle cx="101" cy="478" r="13" fill="#DDF4EA"/>
+    <text x="101" y="482" text-anchor="middle" class="step" fill="#177453">1</text>
+    <text x="96" y="516" class="node-title">完整来回</text>
+    <text x="96" y="539" class="node-sub">用户消息 + 主人格回复</text>
+
+    <rect x="276" y="453" width="230" height="112" rx="17" fill="#FFFFFF" stroke="#D7EDE4"/>
+    <circle cx="301" cy="478" r="13" fill="#DDF4EA"/>
+    <text x="301" y="482" text-anchor="middle" class="step" fill="#177453">2</text>
+    <text x="296" y="510" class="node-title">按轮次分析</text>
+    <g transform="translate(296 527)">
+      <rect width="82" height="20" rx="10" fill="#E7F7F0"/>
+      <text x="41" y="14" text-anchor="middle" class="chip" fill="#177453">轻分析 · 每 2 轮</text>
+      <rect x="88" width="94" height="20" rx="10" fill="#DDF4EA"/>
+      <text x="135" y="14" text-anchor="middle" class="chip" fill="#116849">深分析 · 每 6 轮</text>
+    </g>
+
+    <rect x="536" y="453" width="170" height="112" rx="17" fill="#FFFFFF" stroke="#D7EDE4"/>
+    <circle cx="561" cy="478" r="13" fill="#DDF4EA"/>
+    <text x="561" y="482" text-anchor="middle" class="step" fill="#177453">3</text>
+    <text x="556" y="516" class="node-title">提交证据</text>
+    <text x="556" y="539" class="node-sub">固定标签，不直接改状态</text>
+
+    <rect x="736" y="453" width="200" height="112" rx="17" fill="#FFFFFF" stroke="#D7EDE4"/>
+    <circle cx="761" cy="478" r="13" fill="#DDF4EA"/>
+    <text x="761" y="482" text-anchor="middle" class="step" fill="#177453">4</text>
+    <text x="756" y="516" class="node-title">代码统一裁决</text>
+    <text x="756" y="539" class="node-sub">姿态 · 问题 · 三维状态</text>
+
+    <rect x="966" y="453" width="210" height="112" rx="17" fill="#FFFFFF" stroke="#CDE8DC"/>
+    <circle cx="991" cy="478" r="13" fill="#CDEEDF"/>
+    <text x="991" y="482" text-anchor="middle" class="step" fill="#126647">5</text>
+    <text x="986" y="516" class="node-title">更新关系档案</text>
+    <text x="986" y="539" class="node-sub">SQLite 持久化 · 下一轮读取</text>
+  </g>
+
+  <path d="M 246 509 H 268" fill="none" stroke="#62A990" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <path d="M 506 509 H 528" fill="none" stroke="#62A990" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <path d="M 706 509 H 728" fill="none" stroke="#62A990" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <path d="M 936 509 H 958" fill="none" stroke="#62A990" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  </g>
+
+  <path d="M 1176 549 H 1208 V 397 H 586 V 345" fill="none" stroke="#7562CD" stroke-width="2" stroke-dasharray="5 6" marker-end="url(#arrow-purple)"/>
+  <rect x="806" y="382" width="92" height="25" rx="12.5" fill="#F8F7FF"/>
+  <text x="852" y="399" text-anchor="middle" class="footer" fill="#6753C7">下一轮读取</text>
+</svg>
