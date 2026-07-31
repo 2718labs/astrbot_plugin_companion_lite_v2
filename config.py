@@ -6,6 +6,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class V2Config:
+    """插件的不可变配置：操作模式、消息采集参数与各模块设置，全部带默认值。"""
     operation_mode: str = "observe"
     enable_message_capture: bool = True
     min_message_length: int = 1
@@ -17,25 +18,31 @@ class V2Config:
 
     @property
     def active(self) -> bool:
+        """是否处于主动模式（决定插件是否实际干预回复）。"""
         return self.operation_mode == "active"
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any] | None) -> "V2Config":
+        """从 AstrBot 配置 dict 构建配置：按分组读取，非法值回落默认并做范围钳制。"""
+        # 非 dict 输入按空配置处理，所有字段走默认值
         source = raw if isinstance(raw, dict) else {}
         basic = _group(source, "Basic_Settings")
         reflection = _group(source, "Reflection_Settings")
         prompt = _group(source, "Prompt_Settings")
         mode = str(_get(source, basic, "operation_mode", "observe") or "observe").strip().lower()
         if mode not in {"observe", "active"}:
+            # 未知模式一律回落观察模式，保证插件只读不干预
             mode = "observe"
         return cls(
             operation_mode=mode,
             enable_message_capture=_bool(_get(source, basic, "enable_message_capture", True), True),
             min_message_length=max(0, _int(_get(source, basic, "min_message_length", 1), 1)),
             max_message_length=max(1, _int(_get(source, basic, "max_message_length", 400), 400)),
+            # 缓冲轮数钳制在 12~120，防止消息缓冲异常增长
             max_buffer_rounds=max(12, min(120, _int(_get(source, basic, "max_buffer_rounds", 24), 24))),
             reflection_provider_id=str(_get(source, reflection, "reflection_provider_id", "") or "").strip(),
             persona_prompt=str(_get(source, reflection, "persona_prompt", "") or "")[:2000],
+            # 预算下限与 context_builder 保持一致，避免配置过小导致构建直接抛错
             max_context_chars=max(
                 260,
                 min(
@@ -47,22 +54,27 @@ class V2Config:
 
 
 def load_config(raw: dict[str, Any] | None) -> V2Config:
+    """读取配置入口：把原始 dict 解析为 V2Config；None 或非 dict 输入按空配置处理。"""
     return V2Config.from_dict(raw)
 
 
 def _group(raw: dict[str, Any], name: str) -> dict[str, Any]:
+    """取出命名分组；分组缺失或类型非法时返回空 dict。"""
     value = raw.get(name, {})
     return value if isinstance(value, dict) else {}
 
 
 def _get(raw: dict[str, Any], group: dict[str, Any], key: str, default: Any) -> Any:
+    """优先读分组内键，分组没有时回落到顶层键，再没有则用默认值。"""
     return group[key] if key in group else raw.get(key, default)
 
 
 def _bool(value: Any, default: bool) -> bool:
+    """把布尔/字符串转换为布尔：识别常见中英文真值词，其余回落默认值。"""
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
+        # 兼容前端可能传来的字符串形式（含中文开关词）
         lowered = value.strip().lower()
         if lowered in {"true", "1", "yes", "on", "是", "开启"}:
             return True
@@ -72,6 +84,7 @@ def _bool(value: Any, default: bool) -> bool:
 
 
 def _int(value: Any, default: int) -> int:
+    """安全转整数；类型非法或不可转换时回落默认值。"""
     try:
         return int(value)
     except (TypeError, ValueError):

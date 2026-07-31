@@ -81,6 +81,8 @@ _LIGHT_FEELINGS = {
 
 
 class ContextBuilder:
+    """拼装 <companion_state> 提示词的构建器：按状态选文案，再裁剪到预算内。"""
+
     def build(
         self,
         state: RelationshipState,
@@ -88,6 +90,7 @@ class ContextBuilder:
         next_round: int | None = None,
         relationship_role: str = "unbound",
     ) -> str:
+        """生成提示词主体：由投入/关系/处境/感受/表达五个块组成，按预算压缩到 max_chars 内。"""
         round_number = max(1, int(next_round)) if next_round is not None else state.round_sequence + 1
         budget = max(260, min(340, int(max_chars)))
         guidance = self._active_guidance(state.light_guidance, round_number)
@@ -96,6 +99,7 @@ class ContextBuilder:
             or not guidance
             or guidance.reminder != "soften_for_repair"
         ):
+            # 未进入修复期时正式 issue 优先于轻量提醒，避免两套处境文案互相冲突
             guidance = None
         blocks = [
             ("effort", *self._effort_block(state, relationship_role, guidance)),
@@ -118,6 +122,7 @@ class ContextBuilder:
         relationship_role: str,
         guidance: LightGuidance | None,
     ) -> tuple[str, str]:
+        """生成投入块文案，返回 (完整版, 紧凑版)；无特殊状态时回落 _base_effort_block。"""
         if state.posture == "disengaged":
             text = "投入：不承接普通任务；想回应具体修复时再回应。"
             return text, text
@@ -158,6 +163,7 @@ class ContextBuilder:
 
     @staticmethod
     def _base_effort_block(state: RelationshipState, relationship_role: str) -> tuple[str, str]:
+        """按姿态/亲密度/信任/熟悉度逐级生成投入块文案；无区分时完整版与紧凑版相同。"""
         if state.posture == "reserved":
             text = "投入：简单问题至多给结论或一个要点；费力任务可直接拒绝，不扩展。"
             return text, text
@@ -219,6 +225,7 @@ class ContextBuilder:
         relationship_role: str,
         guidance: LightGuidance | None,
     ) -> tuple[str, str]:
+        """生成关系块文案：按角色与受限条件收紧或放开关系距离表述。"""
         light_constraint = bool(
             guidance
             and guidance.reminder
@@ -228,14 +235,14 @@ class ContextBuilder:
                 "keep_distance",
                 "hold_boundary",
             }
-        )
+        )  # 除软化修复外，轻量提醒一律收紧距离表述
         constrained = (
             state.posture != "normal"
             or state.active_issue is not None
             or state.trust < 60
             or state.affinity < 15
             or light_constraint
-        )
+        )  # 任一受限条件成立时，不展示完整亲密关系文案
         if relationship_role == "bonded":
             if state.posture in {"guarded", "disengaged"}:
                 text = "关系：正式亲密身份仍在，但当前边界优先；不必表现亲近。"
@@ -304,6 +311,7 @@ class ContextBuilder:
         state: RelationshipState,
         guidance: LightGuidance | None,
     ) -> tuple[str, str]:
+        """生成处境块：有 issue 用其语义，否则用轻量提醒语义；两者都没有返回空串。"""
         issue = state.active_issue
         if issue:
             semantics = _ISSUE_SEMANTICS[issue.kind][issue.phase]
@@ -314,6 +322,7 @@ class ContextBuilder:
         semantics = _LIGHT_SITUATIONS.get(guidance.reminder, "")
         compact = _LIGHT_SITUATION_COMPACT.get(guidance.reminder, semantics)
         if guidance.reminder == "hold_boundary" and guidance.signal in _ISSUE_SEMANTICS:
+            # 边界施压提醒直接借用完整 issue 的「已察觉」语义，处境描述更具体
             semantics = _ISSUE_SEMANTICS[guidance.signal]["noticed"]
             compact = semantics
         if not semantics:
@@ -326,9 +335,11 @@ class ContextBuilder:
         state: RelationshipState,
         guidance: LightGuidance | None,
     ) -> tuple[str, str]:
+        """生成感受块：优先用印象/轻量感受，缺失时退化为通用占位文案，不返回空串。"""
         feeling = ""
         if state.active_issue is not None:
             if state.active_issue.phase == "repairing":
+                # 修复期旧印象是待复核假说，退化为按当前数值生成的通用感受
                 feeling = fallback_impression(state)
             else:
                 feeling = state.impression.strip() or fallback_impression(state)
@@ -353,6 +364,7 @@ class ContextBuilder:
         relationship_role: str,
         guidance: LightGuidance | None,
     ) -> tuple[str, str]:
+        """生成表达块：按状态挑选情绪与语气句子并拼接；完整版含全部句子，紧凑版只取首句。"""
         sentences: list[str] = []
         constrained_bond = relationship_role == "bonded" and (
             state.posture != "normal"
@@ -436,6 +448,7 @@ class ContextBuilder:
             repair_expression = _LIGHT_EXPRESSIONS["soften_for_repair"].rstrip("。")
             if repair_expression not in sentences:
                 sentences.append(repair_expression)
+        # 去重且保留顺序，避免同一条表达句子重复出现
         sentences = list(dict.fromkeys(sentences))
         full = "表达：" + "。".join(sentences) + "。"
         compact = "表达：" + sentences[0] + "。"
@@ -446,6 +459,7 @@ class ContextBuilder:
         guidance: LightGuidance | None,
         next_round: int,
     ) -> LightGuidance | None:
+        """过滤出在指定轮次仍生效的轻量提醒；已过期或为空时返回 None。"""
         if not guidance or not guidance.active_for(next_round):
             return None
         return guidance
@@ -455,6 +469,7 @@ class ContextBuilder:
         blocks: list[tuple[str, str, str]],
         max_chars: int,
     ) -> str:
+        """按预算渲染 <companion_state>：先取紧凑值，再逐块尝试升级为完整值，超预算则抛错。"""
         tag_names = {
             "effort": "投入",
             "relationship": "关系",
@@ -463,6 +478,7 @@ class ContextBuilder:
             "expression": "表达",
         }
         values = {key: ContextBuilder._field_value(compact or full) for key, full, compact in blocks}
+        # 无处境文案时补默认占位，保证五个标签都有内容
         values["situation"] = values.get("situation") or "当前无待处理的具体互动事件"
 
         def render(selected: dict[str, str]) -> str:
@@ -479,6 +495,7 @@ class ContextBuilder:
             lines.append("</companion_state>")
             return "\n".join(lines)
 
+        # 从紧凑版出发逐块尝试升级为完整版，放不进预算就维持紧凑值
         for key, full, compact in blocks:
             full_value = ContextBuilder._field_value(full)
             if not full_value or full_value == values.get(key):
@@ -490,11 +507,13 @@ class ContextBuilder:
 
         result = render(values)
         if len(result) > max_chars:
+            # 全用紧凑版仍超预算时直接失败，宁可抛错也不截断语义
             raise ValueError("companion state compact form exceeds configured budget")
         return result
 
     @staticmethod
     def _field_value(text: str) -> str:
+        """剥离「标签：」前缀并清理首尾空白与句号，返回纯字段值。"""
         if not text:
             return ""
         _, separator, value = text.partition("：")

@@ -26,6 +26,7 @@ from ..core.models import (
 )
 
 
+# 各分析 prompt 的版本号，随 prompt 内容变更递增，随 trace 留痕
 SEVERE_PROMPT_VERSION = "severe-v1"
 LIGHT_PROMPT_VERSION = "light-v4"
 DEEP_PROMPT_VERSION = "deep-v6"
@@ -58,6 +59,7 @@ DEEP_SYSTEM_PROMPT = """[deep-v6]
 {"pattern":"none|one_sided|premature_intimacy|ignored_expression|boundary_violation|degradation|coercion|repair","confidence":"low|medium|high","light_disposition":"not_applicable|confirm|uncertain|dismiss","agent_expression":"absent|present|not_applicable","user_response_to_expression":"not_applicable|acknowledged|ignored|pressed","familiarity_change":"none|small|clear","trust_change":"strong_down|down|down_small|same|up_small","affinity_change":"strong_down|down|down_small|same|up_small","relationship_summary":"不超过80字的关系事实","impression_operation":"keep|revise|clear","impression":"不超过40字、第一人称内心态度，不写分析报告"}
 不要输出姿态、绝对分数、回复草稿、Markdown、推理过程或额外字段。"""
 
+# 以下正则用于严重事件候选的本地粗筛：命中才送 LLM 复核，减少无效调用
 _TARGET_WORDS = (
     "你",
     "botname",
@@ -95,6 +97,7 @@ _META_DISCUSSION_RE = re.compile(
 
 @dataclass(frozen=True)
 class LLMCallResult:
+    """LLM 调用归一化结果：文本、token 用量与错误信息；失败时 error 非空。"""
     text: str = ""
     input_other: int | None = None
     input_cached: int | None = None
@@ -107,28 +110,34 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class ReflectionOutcome(Generic[T]):
+    """一次分析的输出：value 为解析出的证据（失败时为 None），trace 为调用留痕。"""
     value: T | None
     trace: dict[str, Any]
 
 
 @dataclass(frozen=True)
 class SevereCandidate:
+    """本地粗筛候选：是否命中、类别、消息哈希与命中理由。"""
     hit: bool
     category: str = "none"
     message_hash: str = ""
     reason: str = "no_candidate"
 
 
+# 外部注入的 LLM 请求函数签名：接收 prompt/system_prompt 等，返回 LLMCallResult 或纯文本
 LLMRequest = Callable[..., Awaitable[LLMCallResult | str]]
 
 
 class RelationshipReflection:
+    """关系分析器：调用外部 LLM 完成严重/轻量/深度三层观察，并把输出解析回证据对象。"""
+
     def __init__(
         self,
         request_func: LLMRequest,
         provider_id: str = "",
         persona_prompt: str = "",
     ) -> None:
+        """绑定请求函数与 provider；persona 截断至 2000 字符，并预构建 deep 系统提示词。"""
         self.request_func = request_func
         self.provider_id = provider_id
         self.persona_prompt = str(persona_prompt or "").strip()[:2000]
@@ -139,6 +148,7 @@ class RelationshipReflection:
         state: RelationshipState,
         user_text: str,
     ) -> ReflectionOutcome[SevereEvidence]:
+        """调用 LLM 复核严重事件（贬低/胁迫/越界）；字段非法或解析失败时 value 为 None。"""
         prompt = self._severe_prompt(state, user_text)
         call = await self.request_func(
             prompt=prompt,
@@ -155,6 +165,7 @@ class RelationshipReflection:
             confidence = str(raw.get("confidence") or "low")
             if signal in SEVERE_SIGNALS and severity in SEVERE_LEVELS and confidence in LIGHT_CONFIDENCES:
                 if signal == "none":
+                    # 无信号时强制清空严重度，避免留下自相矛盾的字段
                     severity = "none"
                 value = SevereEvidence(
                     signal=signal,
@@ -180,6 +191,7 @@ class RelationshipReflection:
         source_round: int,
         relationship_role: str = "unbound",
     ) -> ReflectionOutcome[LightEvidence]:
+        """调用 LLM 分析最近两个来回的互动模式；解析失败时 value 为 None 并保留 trace。"""
         prompt = self._light_prompt(state, messages, relationship_role)
         call = await self.request_func(
             prompt=prompt,
@@ -218,6 +230,7 @@ class RelationshipReflection:
         persona_prompt: str = "",
         relationship_role: str = "unbound",
     ) -> ReflectionOutcome[DeepEvidence]:
+        """周期深分析：综合最近消息判定模式、分数变化与感受操作；失败时 value 为 None。"""
         prompt, system_prompt = self._deep_prompt(state, messages, persona_prompt, relationship_role)
         call = await self.request_func(
             prompt=prompt,
@@ -275,6 +288,7 @@ class RelationshipReflection:
 
     @staticmethod
     def _severe_prompt(state: RelationshipState, user_text: str) -> str:
+        """构建严重事件复核 prompt：边界状态快照 + 当前不可信消息（截断 400 字符）。"""
         issue = state.active_issue
         boundary = {
             "posture": state.posture,
@@ -295,6 +309,7 @@ class RelationshipReflection:
         messages: list[dict[str, Any]],
         relationship_role: str = "unbound",
     ) -> str:
+        """构建轻量观察 prompt：最小状态快照 + 最近两个来回的对话文本。"""
         issue = state.active_issue
         light = state.light_guidance
         minimal = {
@@ -328,6 +343,7 @@ class RelationshipReflection:
         persona_prompt: str = "",
         relationship_role: str = "unbound",
     ) -> tuple[str, str]:
+        """构建深分析 prompt 与系统提示词，返回 (对话部分, 系统提示词)。"""
         issue = state.active_issue
         light = state.light_guidance
         prior = {
@@ -357,6 +373,7 @@ class RelationshipReflection:
             "early_relationship": state.familiarity < 35,
             "formal_intimacy": relationship_role == "bonded",
         }
+        # 构造时已配置 persona 则复用预构建系统提示词，避免每次调用重复拼接
         runtime_persona = str(persona_prompt or "").strip()[:2000] if not self.persona_prompt else ""
         system_prompt = self._configured_deep_system if self.persona_prompt else self._deep_system(runtime_persona)
         prompt = (
@@ -371,13 +388,16 @@ class RelationshipReflection:
 
     @staticmethod
     def _deep_system(persona: str) -> str:
+        """把稳定人格参考拼接到 DEEP_SYSTEM_PROMPT 尾部；persona 为空时用默认占位。"""
         reference = str(persona or "").strip()[:2000] or "保持主人格已有的表达方式和边界观。"
         return DEEP_SYSTEM_PROMPT + "\n<stable_persona_reference>\n" + reference + "\n</stable_persona_reference>"
 
     @staticmethod
     def _format_messages(messages: list[dict[str, Any]]) -> str:
+        """把消息列表格式化为带轮次与角色的文本块；每条内容截断 400 字符。"""
         parts: list[str] = []
         for message in messages:
+            # 只保留双方角色，其余一律按用户发言处理
             role = "assistant" if str(message.get("role")) == "assistant" else "user"
             round_number = int(message.get("completed_round") or 0)
             content = str(message.get("content") or "")[:400]
@@ -386,12 +406,16 @@ class RelationshipReflection:
 
 
 def detect_severe_candidate(text: str, state: RelationshipState) -> SevereCandidate:
+    """本地正则粗筛严重事件：剥离引用/代码后匹配贬低、胁迫、越界关键词；命中才送 LLM。"""
     cleaned = _strip_quoted_and_code(str(text or ""))
     normalized = " ".join(cleaned.lower().split())
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     if not normalized:
+        # 空文本直接视为无候选，但保留哈希供调用方去重
         return SevereCandidate(False, message_hash=digest)
+    # 侮辱/威胁类关键词需直接指向 agent 才算命中，避免误伤对第三方的措辞
     has_target = any(word in normalized for word in _TARGET_WORDS) or bool(_ASCII_TARGET_RE.search(normalized))
+    # 疑似在讨论检测规则本身（示例/转述）时，命中记为低置信的 meta 候选
     meta = bool(_META_DISCUSSION_RE.search(normalized))
 
     category = "none"
@@ -404,6 +428,7 @@ def detect_severe_candidate(text: str, state: RelationshipState) -> SevereCandid
     elif (
         state.active_issue and state.active_issue.phase in {"expressed", "repairing"} and _BOUNDARY_PRESSURE_RE.search(normalized)
     ):
+        # 越界施压只在已表达边界之后才算数
         category = "boundary_violation"
 
     if category == "none":
@@ -417,12 +442,14 @@ def detect_severe_candidate(text: str, state: RelationshipState) -> SevereCandid
 
 
 def _strip_quoted_and_code(text: str) -> str:
+    """去掉代码块与引用行，避免把用户举例/转述的内容误判为真实冒犯。"""
     value = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
     lines = [line for line in value.splitlines() if not line.lstrip().startswith((">", "引用：", "引用:"))]
     return "\n".join(lines)
 
 
 def _normalize_call_result(value: Any) -> LLMCallResult:
+    """把调用返回值归一化为 LLMCallResult；非该类型时按纯文本包装（调用失败降级为可解析文本）。"""
     if isinstance(value, LLMCallResult):
         return value
     return LLMCallResult(text=str(value or ""))
@@ -436,9 +463,11 @@ def _trace(
     model_tags: dict[str, Any],
     **extra: Any,
 ) -> dict[str, Any]:
+    """汇总一次 LLM 调用的留痕：类别、prompt 版本与长度、token 用量及解析结果。"""
     input_total = None
     cache_ratio = None
     if result.input_other is not None and result.input_cached is not None:
+        # 仅当两侧 token 数都返回时才统计总量与缓存占比
         input_total = result.input_other + result.input_cached
         cache_ratio = result.input_cached / input_total if input_total else 0.0
     return {
@@ -459,10 +488,12 @@ def _trace(
 
 
 def _parse_json_object(value: Any) -> dict[str, Any]:
+    """从 LLM 输出中提取 JSON 对象：支持代码块包裹与前后杂文本，失败返回空 dict。"""
     text = str(value or "").strip()
     if not text:
         return {}
     if text.startswith("```"):
+        # 剥掉模型常见的 markdown 代码块包裹
         lines = text.splitlines()[1:]
         if lines and lines[-1].strip().startswith("```"):
             lines = lines[:-1]
@@ -470,6 +501,7 @@ def _parse_json_object(value: Any) -> dict[str, Any]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
+        # 整体解析失败时截取首个 { 到末个 } 再试，容忍前后附带的解释性文字
         start = text.find("{")
         end = text.rfind("}")
         if start < 0 or end <= start:
@@ -478,4 +510,5 @@ def _parse_json_object(value: Any) -> dict[str, Any]:
             parsed = json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             return {}
+    # 顶层不是对象（如数组/字符串）时视为无效，避免异常结构混入
     return parsed if isinstance(parsed, dict) else {}

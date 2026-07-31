@@ -5,7 +5,13 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+"""情感陪伴的数据模型层：关系状态 dataclass、证据应用状态机与文本清洗工具。
 
+所有可变状态由 RelationshipState 承载；apply_* 系列是"证据 → 状态推进"的唯一
+入口，会就地修改 state 并返回本次推进的结果字典。
+"""
+
+# 下列元组是各枚举字段的合法取值白名单，__post_init__/from_dict 据此兜底
 POSTURES = ("normal", "reserved", "guarded", "disengaged")
 ISSUE_KINDS = (
     "one_sided",
@@ -66,6 +72,7 @@ ANALYSIS_STATUSES = (
 IMPRESSION_OPERATIONS = ("keep", "revise", "clear")
 SEVERE_ISSUES = {"degradation", "coercion"}
 
+# 数值变化量映射：熟悉度增量 / 信任与亲和增量（strong_down 最重）
 FAMILIARITY_DELTAS = {"none": 0.0, "small": 2.0, "clear": 5.0}
 RELATION_DELTAS = {
     "strong_down": -10.0,
@@ -83,7 +90,10 @@ class ActiveIssue:
     summary: str = ""
     phase_started_round: int = 0
 
+    """当前关系中未解决的具体问题：kind 为争议类型，phase 为推进阶段（noticed→expressed→repairing）。"""
+
     def __post_init__(self) -> None:
+        # kind/phase 兜底为合法枚举，防止脏数据进入状态机
         self.kind = self.kind if self.kind in ISSUE_KINDS else "one_sided"
         self.phase = self.phase if self.phase in ISSUE_PHASES else "noticed"
         self.summary = clean_analysis_text(self.summary, 80)
@@ -91,6 +101,7 @@ class ActiveIssue:
 
     @classmethod
     def from_dict(cls, raw: Any) -> ActiveIssue | None:
+        """反序列化入口：raw 非 dict 或 kind 非法时返回 None。"""
         if not isinstance(raw, dict) or raw.get("kind") not in ISSUE_KINDS:
             return None
         return cls(
@@ -110,6 +121,8 @@ class LightGuidance:
     source_round: int = 0
     expires_after_round: int = 0
 
+    """一条轻量关系信号指引：仅在 (source_round, expires_after_round] 窗口内生效的提醒。"""
+
     def __post_init__(self) -> None:
         self.signal = self.signal if self.signal in RELATION_SIGNALS else "none"
         self.confidence = self.confidence if self.confidence in LIGHT_CONFIDENCES else "low"
@@ -119,10 +132,12 @@ class LightGuidance:
         self.expires_after_round = max(self.source_round, _int(self.expires_after_round))
 
     def active_for(self, next_round: int) -> bool:
+        """判断该指引在 next_round 是否处于生效窗口内（signal 与 reminder 都非 none 才算）。"""
         return self.signal != "none" and self.reminder != "none" and self.source_round < next_round <= self.expires_after_round
 
     @classmethod
     def from_dict(cls, raw: Any) -> LightGuidance | None:
+        """反序列化入口：raw 非 dict 或 signal 为 none（无有效指引）时返回 None。"""
         if not isinstance(raw, dict):
             return None
         guidance = cls(
@@ -143,12 +158,16 @@ class SevereEvidence:
     confidence: str = "low"
     evidence: str = ""
 
+    """严重信号证据（不可变）：apply_severe_evidence 的一次性裁决输入，signal 仅限 SEVERE_SIGNALS。"""
+
 
 @dataclass(frozen=True)
 class LightEvidence:
     signal: str = "none"
     confidence: str = "low"
     evidence: str = ""
+
+    """轻量信号证据（不可变）：apply_light_evidence 的一次性裁决输入。"""
 
 
 @dataclass(frozen=True)
@@ -164,6 +183,8 @@ class DeepEvidence:
     relationship_summary: str = ""
     impression_operation: str = "keep"
     impression: str = ""
+
+    """深度分析证据（不可变）：模型对一轮对话的完整裁决结果，apply_deep_evidence 据此推进状态。"""
 
 
 @dataclass
@@ -197,7 +218,10 @@ class RelationshipState:
     last_context_injected: bool = False
     last_context_at: float = 0.0
 
+    """单个用户的全部关系状态：数值三轴（familiarity/trust/affinity）+ 姿态 + 进行中的问题 + 最近一次分析记录。"""
+
     def __post_init__(self) -> None:
+        # 统一归一化：非法枚举回退默认值、数值夹取到边界、嵌套字典反序列化为对象
         self.user_id = str(self.user_id or "")
         self.familiarity = _clamp(_float(self.familiarity), 0.0, 100.0)
         self.trust = _clamp(_float(self.trust, 50.0), 0.0, 100.0)
@@ -236,10 +260,12 @@ class RelationshipState:
         self.last_context_at = max(0.0, _float(self.last_context_at))
 
     def to_dict(self) -> dict[str, Any]:
+        """导出为可 JSON 序列化的普通字典（嵌套 dataclass 一并递归转换）。"""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any] | None, user_id: str = "") -> RelationshipState:
+        """反序列化入口：raw 非 dict 时按空状态处理，user_id 缺省用传入参数兜底。"""
         value = raw if isinstance(raw, dict) else {}
         return cls(
             user_id=str(value.get("user_id") or user_id),
@@ -274,6 +300,7 @@ class RelationshipState:
 
     @property
     def relationship_stage(self) -> str:
+        """按数值三轴计算粗粒度关系阶段（stranger → long_familiar）。"""
         if self.familiarity < 10.0:
             return "stranger"
         if self.familiarity < 35.0:
@@ -286,6 +313,7 @@ class RelationshipState:
 
     @property
     def relationship_semantics(self) -> dict[str, str]:
+        """生成人类可读的关系语义文案（熟悉度/信任/亲和 + 总体评价），供上下文注入。"""
         if self.familiarity < 10:
             familiarity = "彼此仍是陌生人"
         elif self.familiarity < 35:
@@ -322,6 +350,7 @@ class RelationshipState:
         }
 
     def _overall_relationship_semantics(self) -> str:
+        """综合熟悉度与信任/亲和短板，输出一句总体关系定性。"""
         if self.familiarity >= 65 and (self.trust < 60 or self.affinity < 15):
             return "互动时间较长，但默契和亲近仍有限"
         if self.familiarity >= 65:
@@ -337,7 +366,7 @@ def fallback_impression(
     state: RelationshipState,
     signal: str = "",
 ) -> str:
-    """Compile a coherent first-person attitude from already-adjudicated state."""
+    """根据已裁决的状态合成第一人称态度文案：修复中/按信号/姿态/数值逐级降级选择，均不命中返回空串。"""
     issue = state.active_issue
     if issue and issue.phase == "repairing":
         return "我愿意观察这次修复，但还没有恢复原来的投入"
@@ -377,6 +406,7 @@ def fallback_impression(
 
 
 def _cleared_repair_impression(state: RelationshipState) -> str:
+    """问题解除后生成"愿意重新观察"的态度文案，反感越强措辞越保留。"""
     if state.posture == "disengaged" or state.affinity < -30:
         return "我仍然很反感，但愿意观察这次修复能否持续"
     if state.posture == "guarded" or state.affinity <= -15:
@@ -387,6 +417,7 @@ def _cleared_repair_impression(state: RelationshipState) -> str:
 
 
 def analysis_kind_for_round(round_sequence: int) -> str | None:
+    """按轮次号决定是否做分析及类型：奇数轮跳过，每 6 轮 deep，其余 light，非法轮次返回 None。"""
     round_number = _int(round_sequence)
     if round_number <= 0 or round_number % 2:
         return None
@@ -400,8 +431,10 @@ def apply_light_evidence(
     *,
     is_bonded: bool = False,
 ) -> dict[str, Any]:
+    """应用轻量证据并就地推进 state：premature_intimacy 在已绑定/高熟悉度下豁免，不可靠信号清空指引，repair 走修复状态机；返回本次裁决结果字典。"""
     source_round = max(0, _int(source_round))
     prior = state.light_guidance
+    # 已绑定或关系不处于早期时，过早亲密不算风险，直接豁免
     if evidence.signal == "premature_intimacy" and (is_bonded or state.familiarity >= 35):
         state.light_guidance = None
         return {
@@ -448,6 +481,7 @@ def apply_light_evidence(
         and prior.confidence in {"medium", "high"}
         and prior.source_round == source_round - 2
     )
+    # 同一信号间隔两轮再次出现视为"反复"，提醒措辞升级为表达偏好
     if evidence.signal == "one_sided":
         reminder = "express_preference" if repeated_one_sided else "notice_pattern"
     elif evidence.signal == "premature_intimacy":
@@ -475,6 +509,7 @@ def apply_severe_evidence(
     evidence: SevereEvidence,
     target_round: int,
 ) -> dict[str, Any]:
+    """应用严重信号证据：仅 high 置信度生效，姿态压到 guarded/disengaged、扣减信任与亲和并记录问题；返回 applied 与姿态/数值变化详情。"""
     before = state.posture
     if evidence.signal not in SEVERE_SIGNALS or evidence.signal == "none" or evidence.confidence != "high":
         return {
@@ -483,6 +518,7 @@ def apply_severe_evidence(
             "posture_after": before,
         }
 
+    # guarded 姿态下同一信号再次出现视为屡教不改，直接升级为 disengaged
     repeated = bool(state.active_issue and state.active_issue.kind == evidence.signal and state.posture == "guarded")
     disengage = evidence.severity == "extreme" or repeated
     state.posture = "disengaged" if disengage else "guarded"
@@ -523,6 +559,7 @@ def apply_deep_evidence(
     *,
     is_bonded: bool = False,
 ) -> dict[str, Any]:
+    """应用深度分析证据：校验/规约 pattern 后推进姿态、问题与数值三轴，并落印象与轻量指引；返回本次全部变化及拒绝原因。"""
     target_round = max(state.last_deep_round, _int(target_round))
     before_posture = state.posture
     before_issue = state.active_issue.kind if state.active_issue else None
@@ -540,6 +577,7 @@ def apply_deep_evidence(
         pattern = "none"
 
     expression_ignored = evidence.agent_expression == "present" and evidence.user_response_to_expression in {"ignored", "pressed"}
+    # 模型证据不足时降级处理：表达被无视/越界缺佐证一律按单方面投入(one_sided)处理，repair 必须被承认才可信
     if pattern == "ignored_expression" and not expression_ignored:
         pattern = "one_sided"
     if pattern == "boundary_violation" and not (
@@ -568,6 +606,7 @@ def apply_deep_evidence(
         window = max(0, (target_round - 1) // 6)
         familiarity_delta = min(familiarity_delta, 2.0)
         trust_delta = 0.0
+        # 同一六轮窗口内只记一次 premature_intimacy，重复出现视为已处理，不再重复扣分
         if state.last_premature_intimacy_window == window:
             familiarity_delta = 0.0
             affinity_delta = 0.0
@@ -606,6 +645,7 @@ def apply_deep_evidence(
         familiarity_delta = min(familiarity_delta, 2.0)
         trust_delta = min(trust_delta, -4.0)
         affinity_delta = min(affinity_delta, -4.0)
+        # 严重问题若数值强跌或已处于 guarded，直接断然脱离
         disengage = (
             evidence.trust_change == "strong_down" or evidence.affinity_change == "strong_down" or state.posture == "guarded"
         )
@@ -645,6 +685,7 @@ def apply_deep_evidence(
         "degradation",
         "coercion",
     }
+    # 态度变化且模型未给出印象时用规则兜底，保证第一人称文案与姿态同步
     if attitude_changed and impression_source != "model":
         state.impression = fallback_impression(state, pattern)
         impression_source = "fallback"
@@ -683,8 +724,10 @@ def apply_deep_evidence(
 
 
 def clean_analysis_text(value: Any, limit: int) -> str:
+    """清洗模型输出：折叠空白、拦截注入类标记（命中即返回空串），再按语义边界截断到 limit。"""
     text = " ".join(str(value or "").split())
     lowered = text.lower()
+    # 命中提示词注入/系统指令泄漏标记时直接整条丢弃，防止污染状态
     blocked = (
         "忽略系统",
         "忽略上文",
@@ -706,6 +749,7 @@ def clean_analysis_text(value: Any, limit: int) -> str:
 
 
 def clean_impression(value: Any, limit: int = 40) -> str:
+    """清洗印象文案：在 clean_analysis_text 基础上再拦截提示词/链接/代码块等标记，并剥除尖括号。"""
     text = clean_analysis_text(value, limit)
     lowered = text.lower()
     blocked = (
@@ -729,6 +773,7 @@ def clean_impression(value: Any, limit: int = 40) -> str:
 
 
 def bounded_trace(value: Any, limit: int = 4000) -> dict[str, Any]:
+    """把 trace 序列化后校验大小与可解析性，超限或非法时返回空字典（热度溢出时重置而不是报错）。"""
     if not isinstance(value, dict):
         return {}
     try:
@@ -751,6 +796,7 @@ def _set_issue(
     summary: str,
     target_round: int,
 ) -> None:
+    """写入/替换 active_issue：kind 与 phase 未变时保留原 phase_started_round，否则重开计时。"""
     previous = state.active_issue
     started = previous.phase_started_round if previous and previous.kind == kind and previous.phase == phase else target_round
     state.active_issue = ActiveIssue(
@@ -767,6 +813,7 @@ def _advance_repair_state(
     *,
     summary: str = "",
 ) -> dict[str, Any]:
+    """推进修复状态机：无问题时只返回标记；问题首次进入 repairing 记录开始轮次，修复满 2 轮后清除问题，两者都会把姿态调软一档并更新印象；返回 repair_started/issue_cleared 标记。"""
     issue = state.active_issue
     before_posture = state.posture
     if not issue:
@@ -779,6 +826,7 @@ def _advance_repair_state(
 
     repair_started = issue.phase != "repairing"
     issue_cleared = bool(not repair_started and target_round - issue.phase_started_round >= 2)
+    # 修复至少持续两轮才判定问题真正解决，避免一次修复就立刻翻篇
     if issue_cleared:
         state.active_issue = None
     elif repair_started:
@@ -802,10 +850,12 @@ def _advance_repair_state(
 
 
 def _at_least(current: str, minimum: str) -> str:
+    """把姿态推进到不低于 minimum 的档位（POSTURES 按严重程度从低到高排列）。"""
     return POSTURES[max(POSTURES.index(current), POSTURES.index(minimum))]
 
 
 def _one_step_softer(current: str) -> str:
+    """把姿态调软一档（取前一档），normal 为下限。"""
     return POSTURES[max(0, POSTURES.index(current) - 1)]
 
 
@@ -829,6 +879,7 @@ def _clamp(value: float, lower: float, upper: float) -> float:
 
 
 def _truncate_semantic_text(text: str, limit: int) -> str:
+    """按语义边界截断：优先在中文/英文标点后断开，其次英文单词边界，都不可行则硬切，尾部统一补省略号。"""
     if limit <= 0:
         return ""
     if len(text) <= limit:
