@@ -217,6 +217,8 @@ class RelationshipState:
     last_compiled_context: str = ""
     last_context_injected: bool = False
     last_context_at: float = 0.0
+    last_silence_event: dict[str, Any] | None = None
+    silence_count: int = 0
 
     """单个用户的全部关系状态：数值三轴（familiarity/trust/affinity）+ 姿态 + 进行中的问题 + 最近一次分析记录。"""
 
@@ -258,6 +260,8 @@ class RelationshipState:
         self.last_compiled_context = str(self.last_compiled_context or "")[:800]
         self.last_context_injected = bool(self.last_context_injected)
         self.last_context_at = max(0.0, _float(self.last_context_at))
+        self.last_silence_event = _normalize_silence_event(self.last_silence_event)
+        self.silence_count = max(0, _int(self.silence_count))
 
     def to_dict(self) -> dict[str, Any]:
         """导出为可 JSON 序列化的普通字典（嵌套 dataclass 一并递归转换）。"""
@@ -296,6 +300,8 @@ class RelationshipState:
             last_compiled_context=str(value.get("last_compiled_context") or ""),
             last_context_injected=bool(value.get("last_context_injected", False)),
             last_context_at=_float(value.get("last_context_at")),
+            last_silence_event=value.get("last_silence_event"),
+            silence_count=_int(value.get("silence_count")),
         )
 
     @property
@@ -670,10 +676,14 @@ def apply_deep_evidence(
         state.relationship_summary = clean_analysis_text(evidence.relationship_summary, 80)
     impression_source = "ignored_rejected_pattern" if pattern_rejected else "kept"
     if not pattern_rejected:
-        if evidence.impression_operation == "clear":
+        if evidence.impression_operation == "clear" and evidence.confidence != "low":
             state.impression = ""
             impression_source = "cleared"
-        elif evidence.impression_operation == "revise" and evidence.impression:
+        elif (
+            evidence.impression_operation == "revise"
+            and evidence.impression
+            and evidence.confidence != "low"
+        ):
             state.impression = clean_impression(evidence.impression, 60)
             impression_source = "model"
 
@@ -876,6 +886,20 @@ def _float(value: Any, default: float = 0.0) -> float:
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
+
+
+def _normalize_silence_event(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    target_id = str(value.get("target_id") or "").strip()
+    if not target_id:
+        return None
+    return {
+        "target_id": target_id,
+        "duration_minutes": max(1, _int(value.get("duration_minutes"))),
+        "source_round": max(0, _int(value.get("source_round"))),
+        "created_at": max(0.0, _float(value.get("created_at"))),
+    }
 
 
 def _truncate_semantic_text(text: str, limit: int) -> str:

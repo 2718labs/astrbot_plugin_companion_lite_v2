@@ -212,6 +212,71 @@ def test_low_confidence_degradation_does_not_create_issue_or_feeling():
     assert state.impression == ""
 
 
+def test_low_confidence_pattern_none_does_not_adopt_model_impression():
+    state = RelationshipState("u")
+    decision = apply_deep_evidence(
+        state,
+        DeepEvidence(
+            pattern="none",
+            confidence="low",
+            impression_operation="revise",
+            impression="这小子还知道关心我吃饭。",
+        ),
+        6,
+    )
+    assert decision["pattern"] == "none"
+    assert decision["pattern_rejected"] is False
+    assert decision["impression_source"] == "kept"
+    assert state.impression == ""
+
+
+def test_low_confidence_revise_keeps_existing_impression():
+    state = RelationshipState("u", impression="我对他已经有些熟悉。")
+    decision = apply_deep_evidence(
+        state,
+        DeepEvidence(
+            pattern="none",
+            confidence="low",
+            impression_operation="revise",
+            impression="这小子还知道关心我吃饭。",
+        ),
+        6,
+    )
+    assert decision["impression_source"] == "kept"
+    assert state.impression == "我对他已经有些熟悉。"
+
+
+def test_low_confidence_clear_keeps_existing_impression():
+    state = RelationshipState("u", impression="我对他已经有些熟悉。")
+    decision = apply_deep_evidence(
+        state,
+        DeepEvidence(
+            pattern="none",
+            confidence="low",
+            impression_operation="clear",
+        ),
+        6,
+    )
+    assert decision["impression_source"] == "kept"
+    assert state.impression == "我对他已经有些熟悉。"
+
+
+def test_high_confidence_pattern_none_revise_adopts_model_impression():
+    state = RelationshipState("u")
+    decision = apply_deep_evidence(
+        state,
+        DeepEvidence(
+            pattern="none",
+            confidence="high",
+            impression_operation="revise",
+            impression="我对这小子有点改观。",
+        ),
+        6,
+    )
+    assert decision["impression_source"] == "model"
+    assert state.impression == "我对这小子有点改观。"
+
+
 def test_deep_positive_affinity_cannot_leave_first_person_feeling_empty():
     state = RelationshipState("u", familiarity=10, trust=60, affinity=13)
     decision = apply_deep_evidence(

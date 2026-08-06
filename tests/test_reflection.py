@@ -6,6 +6,7 @@ from astrbot_plugin_companion_lite_v2.core.models import (
 )
 from astrbot_plugin_companion_lite_v2.llm.reflection import (
     DEEP_PROMPT_VERSION,
+    DEEP_SYSTEM_PROMPT,
     LIGHT_PROMPT_VERSION,
     SEVERE_PROMPT_VERSION,
     LLMCallResult,
@@ -85,6 +86,13 @@ def test_deep_analysis_rejects_posture_and_sanitizes_impression():
     assert outcome.value.impression == ""
     assert not hasattr(outcome.value, "posture")
     assert outcome.trace["prompt_version"] == DEEP_PROMPT_VERSION
+
+
+def test_deep_system_prompt_restricts_impression_to_feelings():
+    assert "只写你此刻对对方的感觉" in DEEP_SYSTEM_PROMPT
+    assert "不要复述谁做了什么、谁关心了谁等事件" in DEEP_SYSTEM_PROMPT
+    assert DEEP_SYSTEM_PROMPT.startswith("[deep-v7]")
+    assert DEEP_PROMPT_VERSION == "deep-v7"
 
 
 def test_deep_prompt_requests_inner_attitude_instead_of_analysis_report():
