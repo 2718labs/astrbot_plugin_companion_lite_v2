@@ -5,30 +5,14 @@ import hashlib
 import re
 import time
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.event.filter import PermissionType
 from astrbot.api.platform import MessageType
 from astrbot.api.star import Context, Star
-
-try:
-    from astrbot.core import sp
-except ImportError:
-    sp = None
-
-try:
-    from astrbot.api.web import json_response, request
-except ImportError:
-
-    def json_response(payload: dict[str, Any]) -> dict[str, Any]:
-        return payload
-
-    request = None
 
 try:
     from astrbot.core.agent.message import TextPart
@@ -43,19 +27,19 @@ except ImportError:
         return str(Path(".").resolve())
 
 
-from . import __version__
-from .config import V2Config, load_config
+from .config import load_config
 from .core import (
+    CommandsController,
+    PersonaService,
+    ReflectionService,
     RelationshipState,
+    SilenceBridgeController,
     Storage,
+    WebUIController,
     analysis_kind_for_round,
-    apply_deep_evidence,
-    apply_light_evidence,
     apply_severe_evidence,
-    fallback_impression,
 )
 from .llm import (
-    COMPANION_PROTOCOL_VERSION,
     COMPANION_STATIC_PROTOCOL,
     ContextBuilder,
     LLMCallResult,
@@ -70,23 +54,15 @@ INTERACTION_KEY_EXTRA = "_companion_lite_v2_interaction_key"
 INJECTED_EXTRA = "_companion_lite_v2_injected"
 
 
-@dataclass(frozen=True)
-class PersonaResolution:
-    """人格解析结果：persona_id 为空时由 error 承载失败原因。"""
-
-    persona_id: str = ""
-    source: str = "none"
-    error: str = ""
-
-
 class CompanionLiteV2Plugin(Star):
-    """情感陪伴插件主类：捕获私聊对话、调度关系分析并注入上下文。"""
+    """AstrBot 入口：装配核心服务，只保留框架事件入口与共享运行时设施。"""
 
     def __init__(self, context: Context, config: dict[str, Any] | None = None) -> None:
-        """初始化插件配置、独立数据库、上下文构建器与各后台任务容器。"""
+        """初始化存储、上下文构建与各核心服务，并注册调试页 API。"""
         super().__init__(context)
         self.context = context
-        self.plugin_config: V2Config = load_config(config)
+        self.plugin_config = load_config(config)
+        self.raw_config = config
         data_dir = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_companion_lite_v2"
         data_dir.mkdir(parents=True, exist_ok=True)
         self.storage = Storage(str(data_dir / "companion_lite_v2.db"))
@@ -99,74 +75,18 @@ class CompanionLiteV2Plugin(Star):
         self._initialized = False
         self._response_locks: dict[str, asyncio.Lock] = {}
         self._analysis_locks: dict[str, asyncio.Lock] = {}
-        self._reflection_tasks: dict[str, asyncio.Task] = {}
-        self._reflection_queues: dict[str, list[tuple[int, str]]] = {}
         self._background_tasks: set[asyncio.Task] = set()
         self._persona_by_user: dict[str, str] = {}
         self._bond_lock = asyncio.Lock()
-        self._register_page_api()
-
-    def _register_page_api(self) -> None:
-        if not hasattr(self.context, "register_web_api"):
-            return
-        prefix = "/astrbot_plugin_companion_lite_v2/page"
-        self.context.register_web_api(
-            f"{prefix}/state",
-            self._api_state,
-            ["GET"],
-            "Get V2 relationship state",
-        )
-        self.context.register_web_api(
-            f"{prefix}/sessions",
-            self._api_sessions,
-            ["GET"],
-            "List V2 private relationship sessions",
-        )
-        self.context.register_web_api(
-            f"{prefix}/messages",
-            self._api_messages,
-            ["GET"],
-            "Get V2 message buffer",
-        )
-        self.context.register_web_api(
-            f"{prefix}/health",
-            self._api_health,
-            ["GET"],
-            "Get V2 plugin health",
-        )
-        self.context.register_web_api(
-            f"{prefix}/reset",
-            self._api_reset,
-            ["POST"],
-            "Reset V2 relationship state",
-        )
-        self.context.register_web_api(
-            f"{prefix}/reset/<path:user_id>",
-            self._api_reset_path,
-            ["POST"],
-            "Reset V2 relationship state by UMO",
-        )
-        self.context.register_web_api(
-            f"{prefix}/enabled",
-            self._api_enabled,
-            ["POST"],
-            "Enable or disable V2 processing for an existing UMO",
-        )
-        self.context.register_web_api(
-            f"{prefix}/reflect",
-            self._api_reflect,
-            ["POST"],
-            "Run V2 deep reflection",
-        )
-        self.context.register_web_api(
-            f"{prefix}/rebuild",
-            self._api_rebuild,
-            ["POST"],
-            "Rebuild V2 relationship state while preserving messages",
-        )
+        self.persona = PersonaService(self)
+        self.silence_bridge = SilenceBridgeController(self)
+        self.reflection_service = ReflectionService(self)
+        self.webui = WebUIController(self)
+        self.commands = CommandsController(self)
+        self.webui.register()
 
     async def initialize(self) -> None:
-        """恢复持久化状态：标记中断的分析，并补调度缺失的深/轻分析。"""
+        """标记就绪并补调度插件重载期间错过的深度/轻量分析。"""
         self._initialized = True
         recovered = 0
         for item in self.storage.list_states():
@@ -182,12 +102,10 @@ class CompanionLiteV2Plugin(Star):
                 state.last_analysis_at = time.time()
                 self._save_state(state)
 
-            # 补齐当前 6 轮周期内到期但未落地的深分析
             deep_target = (state.round_sequence // 6) * 6
             if deep_target > state.last_deep_round:
-                recovered += int(self._enqueue_reflection(state.user_id, deep_target, "deep"))
+                recovered += int(self.reflection_service.enqueue(state.user_id, deep_target, "deep"))
 
-            # 补调最近一个偶数轮该做而未做的轻分析（深分析补调后仍需继续检查）
             latest_even = state.round_sequence - (state.round_sequence % 2)
             if (
                 analysis_kind_for_round(latest_even) == "light"
@@ -195,7 +113,7 @@ class CompanionLiteV2Plugin(Star):
                 and (latest_even > state.last_analysis_round or state.last_analysis_status == "interrupted")
                 and state.round_sequence <= latest_even + 2
             ):
-                recovered += int(self._enqueue_reflection(state.user_id, latest_even, "light"))
+                recovered += int(self.reflection_service.enqueue(state.user_id, latest_even, "light"))
         logger.info(
             "[CLV2] 初始化完成: mode=%s, 使用独立V2数据库, 补调度=%s",
             self.plugin_config.operation_mode,
@@ -203,8 +121,10 @@ class CompanionLiteV2Plugin(Star):
         )
 
     async def terminate(self) -> None:
-        """停止后台任务并关闭 V2 独立数据库连接。"""
+        """停止后台任务、还原桥接并关闭 V2 独立数据库连接。"""
         self._initialized = False
+        if self.silence_bridge.managed:
+            await self.silence_bridge.sync(force_restore=True)
         for task in list(self._background_tasks):
             task.cancel()
         self.storage.close()
@@ -216,8 +136,7 @@ class CompanionLiteV2Plugin(Star):
         provider_id: str = "",
         timeout_seconds: int = 45,
     ) -> LLMCallResult:
-        """统一 LLM 调用入口：失败时返回 error 为 "provider_unavailable"、"timeout"
-        或异常类型名的 LLMCallResult（text 为空）。"""
+        """按 provider 偏好调用分析模型，统一收敛为 LLMCallResult。"""
         try:
             provider = self.context.get_provider_by_id(provider_id) if provider_id else None
             provider = provider or self.context.get_using_provider(None)
@@ -271,7 +190,6 @@ class CompanionLiteV2Plugin(Star):
         )
 
     def _truncate_captured_text(self, text: str) -> str:
-        """按上限截断文本：保留头尾、中间用省略标记替代，优先保住开头语境。"""
         value = str(text or "")
         limit = self.plugin_config.max_message_length
         if len(value) <= limit:
@@ -280,7 +198,6 @@ class CompanionLiteV2Plugin(Star):
         available = limit - len(marker)
         if available <= 1:
             return value[:limit]
-        # 头尾按 2:1 分配可用空间，尽量保住开头语境
         head_length = max(1, available * 2 // 3)
         tail_length = available - head_length
         if tail_length <= 0:
@@ -298,7 +215,6 @@ class CompanionLiteV2Plugin(Star):
         return str(value or "")
 
     def _user_identity(self, event: AstrMessageEvent) -> str:
-        """从事件解析统一消息来源标识（UMO）；无则按平台/会话拼接兜底。"""
         message_obj = getattr(event, "message_obj", None)
         sender = self._event_value(event, "get_sender_id")
         unified_msg_origin = (
@@ -319,144 +235,12 @@ class CompanionLiteV2Plugin(Star):
         if not sender:
             return ""
         platform_key = platform or "unknown-platform"
-        # 会话已带平台与消息类型前缀（如 "qq:FriendMessage:123"），视为完整 UMO
         if session.count(":") >= 2:
             return session
         session_target = session or sender
         return f"{platform_key}:FriendMessage:{session_target}"
 
-    async def _resolve_persona_id(self, user_id: str) -> PersonaResolution:
-        """解析用户当前使用的人格 ID；失败时 error 可取 "umo_missing"、
-        "persona_missing"、"resolution_failed" 等值。"""
-        umo = str(user_id or "").strip()
-        if not umo:
-            return PersonaResolution(error="umo_missing")
-        if sp is None:
-            return PersonaResolution(error="service_provider_unavailable")
-        try:
-            # 解析优先级：会话配置 > 会话对象 > 默认人格
-            session_config = (
-                await sp.get_async(
-                    scope="umo",
-                    scope_id=umo,
-                    key="session_service_config",
-                    default={},
-                )
-                or {}
-            )
-            if not isinstance(session_config, dict):
-                return PersonaResolution(
-                    source="session_override",
-                    error="session_config_invalid",
-                )
-            session_persona = str(session_config.get("persona_id") or "").strip()
-            if session_persona:
-                return await self._validated_persona(session_persona, "session_override")
-
-            conversation_manager = getattr(self.context, "conversation_manager", None)
-            if conversation_manager is not None:
-                conversation_id = await conversation_manager.get_curr_conversation_id(umo)
-                if conversation_id is not None:
-                    conversation = await conversation_manager.get_conversation(umo, conversation_id)
-                    conversation_persona = str(getattr(conversation, "persona_id", "") or "").strip()
-                    if conversation_persona:
-                        return await self._validated_persona(conversation_persona, "conversation")
-
-            persona_manager = getattr(self.context, "persona_manager", None)
-            if persona_manager is None:
-                return PersonaResolution(error="persona_manager_unavailable")
-            default_persona = await persona_manager.get_default_persona_v3(umo=umo)
-            if not default_persona:
-                return PersonaResolution(source="default", error="persona_missing")
-            if isinstance(default_persona, dict):
-                persona_id = str(default_persona.get("name") or default_persona.get("persona_id") or "").strip()
-            else:
-                persona_id = str(getattr(default_persona, "name", "") or getattr(default_persona, "persona_id", "") or "").strip()
-            if not persona_id or persona_id == "[%None]":
-                return PersonaResolution(source="default", error="persona_missing")
-            return PersonaResolution(persona_id, "default")
-        except Exception as exc:
-            logger.debug("[CLV2] 人格解析失败 user=%s error=%s", umo, exc)
-            return PersonaResolution(error="resolution_failed")
-
-    async def _validated_persona(self, persona_id: str, source: str) -> PersonaResolution:
-        """校验候选人格是否存在；失败时 error 取 "persona_missing"、"persona_not_found"、
-        "persona_manager_unavailable"、"persona_lookup_failed" 等值。"""
-        candidate = str(persona_id or "").strip()
-        if not candidate or candidate == "[%None]":
-            return PersonaResolution(source=source, error="persona_missing")
-        persona_manager = getattr(self.context, "persona_manager", None)
-        if persona_manager is None:
-            return PersonaResolution(source=source, error="persona_manager_unavailable")
-        resolver = getattr(persona_manager, "get_persona_v3_by_id", None)
-        if callable(resolver):
-            try:
-                if resolver(candidate):
-                    return PersonaResolution(candidate, source)
-                return PersonaResolution(source=source, error="persona_not_found")
-            except Exception as exc:
-                logger.debug("[CLV2] 人格主查询失败 user=%s error=%s", candidate, exc)
-                return PersonaResolution(source=source, error="persona_lookup_failed")
-        getter = getattr(persona_manager, "get_persona", None)
-        if callable(getter):
-            try:
-                if await getter(candidate):
-                    return PersonaResolution(candidate, source)
-            except Exception as exc:
-                logger.debug("[CLV2] 人格回退查询失败 user=%s error=%s", candidate, exc)
-        return PersonaResolution(source=source, error="persona_not_found")
-
-    def _relationship_role(
-        self,
-        state: RelationshipState,
-        resolution: PersonaResolution,
-    ) -> str:
-        """判定关系角色：返回 "bonded"/"former"/"other"/"unbound" 之一。"""
-        if not resolution.persona_id:
-            return "unbound"
-        bond = self.storage.get_bond(resolution.persona_id)
-        if bond and str(bond.get("user_id") or "") == state.user_id:
-            return "bonded"
-        if state.former_bond:
-            return "former"
-        if bond:
-            return "other"
-        return "unbound"
-
-    def _bond_debug_payload(
-        self,
-        state: RelationshipState,
-        resolution: PersonaResolution,
-    ) -> dict[str, Any]:
-        """构造人格绑定调试信息，供状态接口展示绑定状态与关系角色。"""
-        bond = self.storage.get_bond(resolution.persona_id) if resolution.persona_id else None
-        role = self._relationship_role(state, resolution)
-        status = {
-            "bonded": "bound_current",
-            "other": "occupied_elsewhere",
-            "former": "former",
-            "unbound": ("unresolved" if not resolution.persona_id else "unbound"),
-        }[role]
-        return {
-            "persona_id": resolution.persona_id,
-            "persona_source": resolution.source,
-            "persona_error": resolution.error,
-            "bond_status": status,
-            "relationship_role": role,
-            "bond_user_id": str(bond.get("user_id") or "") if bond else "",
-            "bond_bound_at": float(bond.get("bound_at") or 0) if bond else 0,
-        }
-
-    def _remember_persona(self, user_id: str, req: Any) -> None:
-        if self.plugin_config.persona_prompt:
-            self._persona_by_user[user_id] = self.plugin_config.persona_prompt
-            return
-        prompt = " ".join(str(getattr(req, "system_prompt", "") or "").split())
-        if prompt:
-            self._persona_by_user[user_id] = prompt[:2000]
-
     def _interaction_key(self, event: AstrMessageEvent, user_id: str) -> str:
-        """生成消息级去重键：优先消息 ID 摘要，其次事件已有键，最后随机 UUID。"""
         message_obj = getattr(event, "message_obj", None)
         message_id = str(getattr(message_obj, "message_id", "") or "").strip()
         if message_id:
@@ -472,7 +256,6 @@ class CompanionLiteV2Plugin(Star):
         return generated
 
     async def _load_state(self, user_id: str) -> RelationshipState:
-        """读取用户状态；首次访问时创建并落库一份默认状态。"""
         raw = self.storage.get_state(user_id)
         state = RelationshipState.from_dict(raw, user_id=user_id)
         if raw is None:
@@ -483,7 +266,6 @@ class CompanionLiteV2Plugin(Star):
         self.storage.save_state(state.user_id, state.to_dict())
 
     async def _capture_user_message(self, event: AstrMessageEvent, user_id: str, text: str) -> bool:
-        """捕获符合条件的用户消息入库；返回是否成功认领（用于去重）。"""
         if not self._should_capture_text(text):
             return False
         key = self._interaction_key(event, user_id)
@@ -500,7 +282,6 @@ class CompanionLiteV2Plugin(Star):
             return claimed
 
     async def _run_severe_precheck(self, user_id: str, text: str) -> None:
-        """对当前消息做严重事件预检；命中时调用 LLM 确认并应用严重证据。"""
         async with self._response_lock(user_id):
             if not self.storage.is_user_enabled(user_id):
                 return
@@ -525,7 +306,6 @@ class CompanionLiteV2Plugin(Star):
                 state.last_precheck_trace = trace
                 self._save_state(state)
                 return
-            # 已有同源严重问题且姿态保守时不再重复确认，避免反复打扰
             if (
                 state.active_issue
                 and state.active_issue.kind in {"boundary_violation", "degradation", "coercion"}
@@ -535,13 +315,11 @@ class CompanionLiteV2Plugin(Star):
                 state.last_precheck_trace = trace
                 self._save_state(state)
                 return
-            # 同一消息内容重复到达时不重复确认
             if candidate.message_hash and candidate.message_hash == state.severe_last_message_hash:
                 trace["skip_reason"] = "duplicate_message"
                 state.last_precheck_trace = trace
                 self._save_state(state)
                 return
-            # 单窗口确认次数上限，防止刷屏触发过多 LLM 调用
             if state.severe_confirmation_count >= 2:
                 trace["skip_reason"] = "window_limit"
                 state.last_precheck_trace = trace
@@ -564,9 +342,9 @@ class CompanionLiteV2Plugin(Star):
 
     @filter.on_llm_request(priority=-10)
     async def inject_companion_context(self, event: AstrMessageEvent, req=None) -> None:
-        """LLM 请求前钩子：捕获消息、预检严重事件并注入关系上下文到请求。"""
         if not self._initialized or req is None or not self._is_private(event):
             return
+        await self.silence_bridge.sync()
         text = str(event.get_message_str() or "").strip()
         if self._is_system_command_text(text):
             return
@@ -581,16 +359,16 @@ class CompanionLiteV2Plugin(Star):
 
         if not self.storage.is_user_enabled(user_id):
             return
-        persona_resolution = await self._resolve_persona_id(user_id)
+        persona_resolution = await self.persona.resolve_persona_id(user_id)
 
         await self._run_severe_precheck(user_id, text)
 
         async with self._response_lock(user_id):
             if not self.storage.is_user_enabled(user_id):
                 return
-            self._remember_persona(user_id, req)
+            self.persona.remember(user_id, req)
             state = await self._load_state(user_id)
-            relationship_role = self._relationship_role(state, persona_resolution)
+            relationship_role = self.persona.relationship_role(state, persona_resolution)
             compiled = self.context_builder.build(
                 state,
                 max_chars=self.plugin_config.max_context_chars,
@@ -608,7 +386,6 @@ class CompanionLiteV2Plugin(Star):
                 if hasattr(event, "set_extra"):
                     event.set_extra(INJECTED_EXTRA, True)
                 current_system_prompt = str(getattr(req, "system_prompt", "") or "")
-                # 静态协议只注入一次，避免与已有协议重复拼接
                 if COMPANION_STATIC_PROTOCOL not in current_system_prompt:
                     req.system_prompt = (
                         f"{COMPANION_STATIC_PROTOCOL}\n\n{current_system_prompt}"
@@ -617,10 +394,14 @@ class CompanionLiteV2Plugin(Star):
                     )
                 if not self._append_extra_user_content(req, compiled):
                     req.prompt = (f"{getattr(req, 'prompt', '')}\n\n{compiled}").strip()
+            if self.plugin_config.active:
+                if self.silence_bridge.should_inject_silence(state):
+                    self.silence_bridge.append_prompt(event, req, state)
+                if self.silence_bridge.consume_recovery(state, event, req):
+                    self._save_state(state)
 
-    @filter.on_llm_response()
+    @filter.on_llm_response(priority=-10)
     async def capture_llm_response(self, event: AstrMessageEvent, resp=None) -> None:
-        """LLM 回复后钩子：记录回复、推进轮次并调度下一轮轻/深分析。"""
         if not self._initialized or resp is None or not self._is_private(event) or not self.plugin_config.enable_message_capture:
             return
         if (
@@ -629,10 +410,10 @@ class CompanionLiteV2Plugin(Star):
             or getattr(resp, "tools_call_extra_content", None)
         ):
             return
-        assistant_text = str(getattr(resp, "completion_text", "") or "").strip()
-        if not assistant_text:
+        raw_assistant_text = str(getattr(resp, "completion_text", "") or "").strip()
+        if not raw_assistant_text:
             return
-        assistant_text = self._truncate_captured_text(assistant_text)
+        assistant_text = self._truncate_captured_text(raw_assistant_text)
         user_id = self._user_identity(event)
         if not user_id or not self.storage.is_user_enabled(user_id):
             return
@@ -650,694 +431,64 @@ class CompanionLiteV2Plugin(Star):
             ):
                 return
             state.round_sequence = next_round
+            if self.plugin_config.bridge_polite_silence:
+                event_info = self.silence_bridge.extract_ignore_event(raw_assistant_text)
+                if event_info is not None and self.silence_bridge.resolve_polite_silence() is not None:
+                    event_info["source_round"] = next_round
+                    event_info["created_at"] = time.time()
+                    state.last_silence_event = event_info
+                    state.silence_count += 1
+                    logger.info(
+                        "[CLV2] 已记录拒答事件 target=%s minutes=%s",
+                        event_info["target_id"],
+                        event_info["duration_minutes"],
+                    )
             self._save_state(state)
             self.storage.trim_completed_rounds(user_id, self.plugin_config.max_buffer_rounds)
 
-        # 跨过周期边界时调度深分析，否则偶数轮调度轻分析
         deep_target = (next_round // 6) * 6
         if deep_target > state.last_deep_round:
-            self._enqueue_reflection(user_id, deep_target, "deep")
+            self.reflection_service.enqueue(user_id, deep_target, "deep")
         elif analysis_kind_for_round(next_round) == "light":
-            self._enqueue_reflection(user_id, next_round, "light")
-
-    def _enqueue_reflection(self, user_id: str, target_round: int, kind: str) -> bool:
-        """排入一轮分析并确保工作协程在跑；参数非法或用户停用返回 False。"""
-        if target_round <= 0 or kind not in {"light", "deep"} or not self.storage.is_user_enabled(user_id):
-            return False
-        queue = self._reflection_queues.setdefault(user_id, [])
-        item = (target_round, kind)
-        added = item not in queue
-        if added:
-            queue.append(item)
-            queue.sort(key=lambda value: (value[0], value[1] != "deep"))
-            logger.info(
-                "[CLV2] 已调度%s分析 user=%s round=%s",
-                "轻" if kind == "light" else "深",
-                user_id,
-                target_round,
-            )
-        task = self._reflection_tasks.get(user_id)
-        if task and not task.done():
-            return True
-        task = asyncio.create_task(self._reflection_worker(user_id))
-        self._reflection_tasks[user_id] = task
-        self._background_tasks.add(task)
-        task.add_done_callback(lambda done: self._reflection_done(user_id, done))
-        return True
-
-    def _reflection_done(self, user_id: str, task: asyncio.Task) -> None:
-        self._background_tasks.discard(task)
-        if self._reflection_tasks.get(user_id) is task:
-            self._reflection_tasks.pop(user_id, None)
-        if not task.cancelled() and task.exception():
-            logger.warning(
-                "[CLV2] 反思任务异常 user=%s: %s",
-                user_id,
-                task.exception(),
-            )
-
-    async def _reflection_worker(self, user_id: str) -> None:
-        """逐条消费该用户的反思队列，直至队列清空或插件停用。"""
-        queue = self._reflection_queues.setdefault(user_id, [])
-        while queue and self._initialized:
-            if not self.storage.is_user_enabled(user_id):
-                queue.clear()
-                break
-            target_round, kind = queue.pop(0)
-            await self._perform_reflection(user_id, target_round, kind)
-
-    async def _perform_reflection(self, user_id: str, target_round: int, kind: str) -> bool:
-        """对指定轮次执行分析（每用户串行）；返回是否真正完成。"""
-        async with self._analysis_lock(user_id):
-            return await self._perform_reflection_locked(user_id, target_round, kind)
-
-    async def _perform_reflection_locked(self, user_id: str, target_round: int, kind: str) -> bool:
-        """分析锁内的实际执行：跳过无消息/已分析/结果过期等情况，落库证据；失败返回 False。"""
-        if not self.storage.is_user_enabled(user_id):
-            return False
-        if kind == "deep":
-            messages = self.storage.get_recent_messages(
-                user_id,
-                limit=20,
-                up_to_round=target_round,
-                completed_only=True,
-            )
-        else:
-            messages = self.storage.get_completed_rounds(user_id, 2, up_to_round=target_round)
-        # 不足两个完整来回，无法形成分析样本
-        if len(messages) < 2:
-            return False
-        state = await self._load_state(user_id)
-        # 该目标轮次已有更新的深/轻分析结果，无需重做
-        if kind == "deep" and state.last_deep_round >= target_round:
-            return True
-        if kind == "light" and target_round <= state.last_deep_round:
-            return True
-        # 同一轻分析刚完成且已产出提醒，不重复调用模型
-        if (
-            kind == "light"
-            and state.last_analysis_kind == "light"
-            and state.last_analysis_round >= target_round
-            and state.last_analysis_status in {"signal", "none"}
-        ):
-            return True
-        persona_resolution = await self._resolve_persona_id(user_id)
-        relationship_role = self._relationship_role(state, persona_resolution)
-
-        async with self._response_lock(user_id):
-            latest = await self._load_state(user_id)
-            latest.last_analysis_kind = kind
-            latest.last_analysis_round = target_round
-            latest.last_analysis_status = "running"
-            latest.last_analysis_signal = ""
-            latest.last_analysis_confidence = ""
-            latest.last_analysis_note = "正在检查最近两个完整来回" if kind == "light" else "正在综合近期关系状态"
-            latest.last_analysis_at = time.time()
-            self._save_state(latest)
-            state = latest
-
-        if kind == "light":
-            outcome = await self.reflection.analyze_light(
-                state,
-                messages,
-                target_round,
-                relationship_role=relationship_role,
-            )
-        else:
-            outcome = await self.reflection.analyze_deep(
-                state,
-                messages,
-                persona_prompt=self._persona_by_user.get(user_id, ""),
-                relationship_role=relationship_role,
-            )
-        if outcome.value is None:
-            async with self._response_lock(user_id):
-                latest = await self._load_state(user_id)
-                if latest.last_analysis_kind == kind and latest.last_analysis_round == target_round:
-                    latest.last_analysis_status = "invalid"
-                    latest.last_analysis_note = "模型返回为空、调用失败或输出格式不符合约定"
-                    latest.last_analysis_trace = outcome.trace
-                    latest.last_analysis_at = time.time()
-                    self._save_state(latest)
-            logger.warning(
-                "[CLV2] %s分析无有效结果 user=%s round=%s",
-                "轻" if kind == "light" else "深",
-                user_id,
-                target_round,
-            )
-            return False
-
-        async with self._response_lock(user_id):
-            latest = await self._load_state(user_id)
-            # 分析期间状态被重置导致轮次回退，丢弃过期结果
-            if latest.round_sequence < target_round:
-                return False
-            if kind == "light":
-                if target_round <= latest.last_deep_round:
-                    return False
-                evidence = outcome.value
-                decision = apply_light_evidence(
-                    latest,
-                    evidence,
-                    target_round,
-                    is_bonded=relationship_role == "bonded",
-                )
-                latest.last_analysis_status = "none" if evidence.signal == "none" else "signal"
-                latest.last_analysis_signal = evidence.signal
-                latest.last_analysis_confidence = evidence.confidence
-                latest.last_analysis_note = (
-                    "未发现需要提醒主人格的关系信号" if evidence.signal == "none" else "模型只提交关系证据，提醒由代码生成"
-                )
-            else:
-                if target_round <= latest.last_deep_round:
-                    logger.info(
-                        "[CLV2] 深分析结果已过期 user=%s round=%s last_deep_round=%s",
-                        user_id,
-                        target_round,
-                        latest.last_deep_round,
-                    )
-                    return True
-                evidence = outcome.value
-                decision = apply_deep_evidence(
-                    latest,
-                    evidence,
-                    target_round,
-                    is_bonded=relationship_role == "bonded",
-                )
-                latest.last_analysis_status = "applied"
-                latest.last_analysis_signal = evidence.pattern
-                latest.last_analysis_confidence = evidence.confidence
-                latest.last_analysis_note = "模型观察已由代码规则裁决并更新关系状态"
-            trace = dict(outcome.trace)
-            trace["code_decision"] = decision
-            latest.last_analysis_trace = trace
-            latest.last_analysis_kind = kind
-            latest.last_analysis_round = target_round
-            latest.last_analysis_at = time.time()
-            self._save_state(latest)
-        logger.info(
-            "[CLV2] %s分析完成 user=%s round=%s status=%s signal=%s confidence=%s",
-            "轻" if kind == "light" else "深",
-            user_id,
-            target_round,
-            latest.last_analysis_status,
-            latest.last_analysis_signal or "-",
-            latest.last_analysis_confidence or "-",
-        )
-        return True
+            self.reflection_service.enqueue(user_id, next_round, "light")
 
     @filter.command("clv2_status")
     @filter.permission_type(PermissionType.ADMIN)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
     async def cmd_status(self, event: AstrMessageEvent):
-        """查看当前私聊 UMO 的关系状态与最近语义投影。"""
-        user_id = self._user_identity(event)
-        state = await self._load_state(user_id)
-        persona_resolution = await self._resolve_persona_id(user_id)
-        bond_debug = self._bond_debug_payload(state, persona_resolution)
-        issue = state.active_issue
-        issue_text = f"{issue.kind}/{issue.phase}: {issue.summary or '-'}" if issue else "-"
-        light = state.light_guidance
-        light_text = f"{light.signal}/{light.reminder}，有效至第{light.expires_after_round}轮" if light else "-"
-        yield event.plain_result(
-            "CompanionLiteV2 状态\n"
-            f"模式: {self.plugin_config.operation_mode}\n"
-            f"用户: {user_id}\n"
-            f"人格: {bond_debug['persona_id'] or '-'} "
-            f"({bond_debug['persona_source'] or bond_debug['persona_error'] or '-'})\n"
-            f"正式关系: {bond_debug['bond_status']}\n"
-            f"轮次: {state.round_sequence}，最近深分析: {state.last_deep_round}\n"
-            f"关系阶段: {state.relationship_stage}\n"
-            f"三维: 熟悉度 {state.familiarity:.1f} / "
-            f"信任 {state.trust:.1f} / 亲和 {state.affinity:.1f}\n"
-            f"关系总结: {state.relationship_summary or '-'}\n"
-            f"关系姿态: {state.posture}\n"
-            f"当前问题: {issue_text}\n"
-            f"轻提醒: {light_text}\n"
-            f"主观印象: {state.impression or '-'}\n"
-            f"最近上下文实际注入: {'是' if state.last_context_injected else '否'}\n"
-            f"最近编译文本:\n{state.last_compiled_context or '-'}"
-        )
+        async for item in self.commands.status(event):
+            yield item
 
     @filter.command("companion_bond")
     @filter.permission_type(PermissionType.ADMIN)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
     async def cmd_bond(self, event: AstrMessageEvent):
-        """将当前私聊窗口设为当前人格唯一的正式关系。"""
-        user_id = self._user_identity(event)
-        resolution = await self._resolve_persona_id(user_id)
-        if not resolution.persona_id:
-            yield event.plain_result("这轮没认出我正在使用哪套人格，先别乱绑。")
-            return
-        async with self._bond_lock:
-            result = self.storage.bind_persona(resolution.persona_id, user_id)
-            status = str(result.get("status") or "")
-            if status == "occupied":
-                yield event.plain_result("这个位置已经有人了。要换，先在原来的窗口解除。")
-                return
-            if status == "already_bound":
-                yield event.plain_result("这个位置本来就是你的，还确认什么。")
-                return
-            if status != "bound":
-                yield event.plain_result("这次绑定没有落稳，先别把关系说死。")
-                return
-            async with self._response_lock(user_id):
-                state = await self._load_state(user_id)
-                was_former = state.former_bond
-                state.former_bond = False
-                if not was_former:
-                    state.familiarity = max(state.familiarity, 35.0)
-                    state.trust = max(state.trust, 60.0)
-                    state.affinity = max(state.affinity, 15.0)
-                if not state.impression:
-                    state.impression = fallback_impression(state)
-                self._save_state(state)
-        yield event.plain_result("行，这个位置给你了。只有一个——以后怎么待我，自己掂量。")
+        async for item in self.commands.bond(event):
+            yield item
 
     @filter.command("companion_unbond")
     @filter.permission_type(PermissionType.ADMIN)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
     async def cmd_unbond(self, event: AstrMessageEvent):
-        """解除当前窗口的正式关系，但保留既有相处状态。"""
-        user_id = self._user_identity(event)
-        resolution = await self._resolve_persona_id(user_id)
-        if not resolution.persona_id:
-            yield event.plain_result("这个窗口没有可解除的关系。")
-            return
-        async with self._bond_lock:
-            if not self.storage.unbind_persona(resolution.persona_id, user_id):
-                yield event.plain_result("这个窗口没有可解除的关系。")
-                return
-            async with self._response_lock(user_id):
-                state = await self._load_state(user_id)
-                state.former_bond = True
-                self._save_state(state)
-        yield event.plain_result("关系名我收回了，发生过的事不清零。以后还是看你怎么待我。")
+        async for item in self.commands.unbond(event):
+            yield item
 
     @filter.command("clv2_reset")
     @filter.permission_type(PermissionType.ADMIN)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
     async def cmd_reset(self, event: AstrMessageEvent):
-        """重置当前私聊 UMO 的全部 CompanionLiteV2 数据。"""
-        user_id = self._user_identity(event)
-        await self._reset_user(user_id)
-        yield event.plain_result(f"已重置 CompanionLiteV2 独立状态: {user_id}")
+        async for item in self.commands.reset(event):
+            yield item
 
     @filter.command("clv2_reflect")
     @filter.permission_type(PermissionType.ADMIN)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
     async def cmd_reflect(self, event: AstrMessageEvent):
-        """立即尝试运行当前私聊 UMO 的深度关系分析。"""
-        user_id = self._user_identity(event)
-        if not self.storage.is_user_enabled(user_id):
-            yield event.plain_result("CompanionLiteV2 此 UMO 已关闭，未调用分析模型")
-            return
-        state = await self._load_state(user_id)
-        target_round = (state.round_sequence // 6) * 6
-        if target_round <= 0:
-            yield event.plain_result("CompanionLiteV2 深分析未执行：尚未攒满一个完整 6 轮周期")
-            return
-        ok = await self._perform_reflection(user_id, target_round, "deep")
-        yield event.plain_result(
-            "CompanionLiteV2 深分析已完成" if ok else "CompanionLiteV2 深分析未执行：没有完整来回或模型未返回有效结果"
-        )
-
-    async def _reset_user(self, user_id: str) -> dict[str, int]:
-        """清空该用户的队列、缓存与全部存储数据；返回删除的消息数与轮次数。"""
-        async with self._analysis_lock(user_id):
-            queue = self._reflection_queues.get(user_id)
-            if queue is not None:
-                queue.clear()
-            self._reflection_queues.pop(user_id, None)
-            self._persona_by_user.pop(user_id, None)
-            async with self._response_lock(user_id):
-                before_messages = len(self.storage.get_recent_messages(user_id, limit=10000))
-                before_rounds = self.storage.get_max_completed_round(user_id)
-                self.storage.reset_user(user_id)
-                self._save_state(RelationshipState(user_id=user_id))
-                return {
-                    "messages_deleted": before_messages,
-                    "rounds_deleted": before_rounds,
-                }
-
-    async def _resolve_user_id(self) -> str:
-        if request is None:
-            return ""
-        user_id = str(request.query.get("user_id", "") or "").strip()
-        if user_id:
-            return user_id
-        try:
-            body = await request.json({})
-        except Exception as exc:
-            logger.debug("[CLV2] 请求体解析失败 error=%s", exc)
-            body = None
-        if not isinstance(body, dict):
-            return ""
-        return str(body.get("user_id", "") or "").strip()
-
-    async def _set_user_enabled(self, user_id: str, enabled: bool) -> dict[str, Any]:
-        """启用/停用某用户；停用时顺带清空反思队列与人格缓存。"""
-        if not self.storage.has_state(user_id):
-            return {"ok": False, "error": "unknown_umo", "user_id": user_id}
-        async with self._analysis_lock(user_id), self._response_lock(user_id):
-            if not enabled:
-                queue = self._reflection_queues.get(user_id)
-                if queue is not None:
-                    queue.clear()
-                self._reflection_queues.pop(user_id, None)
-                self._persona_by_user.pop(user_id, None)
-            self.storage.set_user_enabled(user_id, enabled)
-        return {
-            "ok": True,
-            "user_id": user_id,
-            "enabled": enabled,
-            "active_injection": bool(self.plugin_config.active and enabled),
-        }
-
-    async def _api_state(self):
-        """GET /state：返回指定用户的关系状态与人格绑定调试信息。"""
-        user_id = await self._resolve_user_id()
-        if not user_id:
-            return json_response({"error": "user_id_required"})
-        state = await self._load_state(user_id)
-        resolution = await self._resolve_persona_id(user_id)
-        return json_response(self._state_payload(state, resolution))
-
-    async def _api_sessions(self):
-        """GET /sessions：列出全部私聊会话的简要关系快照。"""
-        sessions: list[dict[str, Any]] = []
-        for item in self.storage.list_states(limit=1000):
-            state = RelationshipState.from_dict(
-                item.get("state"),
-                user_id=str(item.get("user_id") or ""),
-            )
-            sessions.append(
-                {
-                    "user_id": state.user_id,
-                    **self._identity_parts(state.user_id),
-                    "round_sequence": state.round_sequence,
-                    "relationship_stage": state.relationship_stage,
-                    "familiarity": state.familiarity,
-                    "trust": state.trust,
-                    "affinity": state.affinity,
-                    "posture": state.posture,
-                    "former_bond": state.former_bond,
-                    "enabled": bool(item.get("enabled", True)),
-                    "updated_at": item.get("updated_at", 0),
-                }
-            )
-        return json_response({"sessions": sessions, "count": len(sessions)})
-
-    async def _api_messages(self):
-        """GET /messages：返回指定用户最近的原始消息（默认 40 条）。"""
-        user_id = await self._resolve_user_id()
-        if not user_id:
-            return json_response({"error": "user_id_required"})
-        limit = request.query.get("limit", 40, type=int) if request is not None else 40
-        messages = self.storage.get_recent_messages(user_id, limit=limit)
-        return json_response({"messages": messages, "count": len(messages)})
-
-    async def _api_health(self):
-        """GET /health：返回插件初始化状态、版本与后台任务数。"""
-        return json_response(
-            {
-                "initialized": self._initialized,
-                "plugin_id": "astrbot_plugin_companion_lite_v2",
-                "version": __version__,
-                "operation_mode": self.plugin_config.operation_mode,
-                "active_injection": self.plugin_config.active,
-                "background_tasks": len(self._background_tasks),
-            }
-        )
-
-    async def _api_reset(self):
-        """POST /reset：重置指定用户全部状态并返回删除统计。"""
-        user_id = await self._resolve_user_id()
-        if not user_id:
-            return json_response({"error": "user_id_required"})
-        if not self.storage.has_state(user_id):
-            return json_response({"error": "unknown_umo"})
-        return await self._reset_response(user_id)
-
-    async def _api_reset_path(self, user_id: str):
-        """POST /reset/<user_id>：按路径参数重置用户，最多三层 URL 解码兜底。"""
-        user_id = str(user_id or "").strip()
-        if not user_id:
-            return json_response({"error": "user_id_required"})
-        for _ in range(3):
-            if self.storage.has_state(user_id):
-                return await self._reset_response(user_id)
-            decoded = unquote(user_id)
-            if decoded == user_id:
-                break
-            user_id = decoded
-        return json_response({"error": "unknown_umo"})
-
-    async def _api_enabled(self):
-        """POST /enabled：按请求体中的 user_id 与 enabled 启停该用户。"""
-        if request is None:
-            return json_response({"error": "request_unavailable"})
-        try:
-            body = await request.json({})
-        except Exception as exc:
-            logger.debug("[CLV2] 请求体解析失败 error=%s", exc)
-            body = None
-        if not isinstance(body, dict):
-            return json_response({"error": "invalid_request_body"})
-        user_id = str(body.get("user_id", "") or "").strip()
-        enabled_value = body.get("enabled")
-        if not user_id:
-            return json_response({"error": "user_id_required"})
-        if not isinstance(enabled_value, bool):
-            return json_response({"error": "invalid_enabled_value"})
-        result = await self._set_user_enabled(user_id, enabled_value)
-        return json_response(result)
-
-    async def _reset_response(self, user_id: str):
-        """执行重置并组装响应负载（删除统计与重置后的状态快照）。"""
-        deleted = await self._reset_user(user_id)
-        state = await self._load_state(user_id)
-        remaining_messages = len(self.storage.get_recent_messages(user_id, limit=10000))
-        return json_response(
-            {
-                "ok": True,
-                "user_id": user_id,
-                **deleted,
-                "remaining_messages": remaining_messages,
-                "posture": state.posture,
-                "round_sequence": state.round_sequence,
-            }
-        )
-
-    async def _api_reflect(self):
-        """POST /reflect：立即触发一次深分析，返回是否执行成功。"""
-        user_id = await self._resolve_user_id()
-        if not user_id:
-            return json_response({"error": "user_id_required"})
-        if not self.storage.is_user_enabled(user_id):
-            return json_response({"ok": False, "user_id": user_id, "error": "umo_disabled"})
-        state = await self._load_state(user_id)
-        ok = await self._perform_reflection(user_id, state.round_sequence, "deep")
-        return json_response({"ok": ok, "user_id": user_id})
-
-    async def _rebuild_profile(self, user_id: str) -> tuple[bool, str, RelationshipState | None]:
-        """observe 模式下保留消息、重放全部轮次重建档案。
-        返回 (是否成功, 错误码, 新状态)；错误码含 "umo_disabled"、"new_messages_arrived" 等。"""
-        if not self.storage.is_user_enabled(user_id):
-            return False, "umo_disabled", None
-        if self.plugin_config.operation_mode != "observe":
-            return False, "observe_mode_required", None
-        async with self._analysis_lock(user_id):
-            current_state = await self._load_state(user_id)
-            persona_resolution = await self._resolve_persona_id(user_id)
-            relationship_role = self._relationship_role(current_state, persona_resolution)
-            if relationship_role == "bonded":
-                return False, "bonded_rebuild_forbidden", None
-            _, revision = self.storage.get_state_record(user_id)
-            if revision is None:
-                return False, "state_revision_missing", None
-            message_revision = self.storage.get_message_revision(user_id)
-            max_round = self.storage.get_max_completed_round(user_id)
-            if max_round < 2:
-                return False, "not_enough_completed_rounds", None
-
-            rebuilt = RelationshipState(
-                user_id=user_id,
-                round_sequence=0,
-                former_bond=current_state.former_bond,
-            )
-            steps: list[dict[str, Any]] = []
-            last_model_trace: dict[str, Any] = {}
-            for target_round in range(2, max_round + 1, 2):
-                kind = analysis_kind_for_round(target_round)
-                if kind == "deep":
-                    messages = self.storage.get_recent_messages(
-                        user_id,
-                        limit=20,
-                        up_to_round=target_round,
-                        completed_only=True,
-                    )
-                    rebuilt.round_sequence = target_round
-                    outcome = await self.reflection.analyze_deep(
-                        rebuilt,
-                        messages,
-                        persona_prompt=self._persona_by_user.get(user_id, ""),
-                        relationship_role=relationship_role,
-                    )
-                else:
-                    messages = self.storage.get_completed_rounds(user_id, 2, up_to_round=target_round)
-                    rebuilt.round_sequence = target_round
-                    outcome = await self.reflection.analyze_light(
-                        rebuilt,
-                        messages,
-                        target_round,
-                        relationship_role=relationship_role,
-                    )
-                if outcome.value is None:
-                    return (
-                        False,
-                        f"{kind}_analysis_invalid_at_round_{target_round}",
-                        None,
-                    )
-                if kind == "deep":
-                    decision = apply_deep_evidence(
-                        rebuilt,
-                        outcome.value,
-                        target_round,
-                        is_bonded=relationship_role == "bonded",
-                    )
-                    signal = outcome.value.pattern
-                    confidence = outcome.value.confidence
-                else:
-                    decision = apply_light_evidence(
-                        rebuilt,
-                        outcome.value,
-                        target_round,
-                        is_bonded=relationship_role == "bonded",
-                    )
-                    signal = outcome.value.signal
-                    confidence = outcome.value.confidence
-                last_model_trace = dict(outcome.trace)
-                steps.append(
-                    {
-                        "round": target_round,
-                        "kind": kind,
-                        "prompt_version": outcome.trace.get("prompt_version", ""),
-                        "prompt_chars": outcome.trace.get("prompt_chars"),
-                        "usage": outcome.trace.get("usage", {}),
-                        "model_tags": outcome.trace.get("model_tags", {}),
-                        "code_decision": decision,
-                    }
-                )
-
-            rebuilt.round_sequence = max_round
-            rebuilt.last_analysis_kind = "rebuild"
-            rebuilt.last_analysis_round = max_round
-            rebuilt.last_analysis_status = "applied"
-            rebuilt.last_analysis_signal = signal
-            rebuilt.last_analysis_confidence = confidence
-            rebuilt.last_analysis_note = "保留消息的档案重建已由模型观察与代码裁决完成"
-            rebuilt.last_analysis_at = time.time()
-            rebuilt.last_analysis_trace = {
-                **last_model_trace,
-                "kind": "rebuild",
-                "operation_version": "rebuild-v1",
-                "steps": steps[-6:],
-                "code_decision": {
-                    "message_count": message_revision[0],
-                    "round_sequence": max_round,
-                    "atomic_replace": True,
-                },
-            }
-
-            # 落库前核对消息与状态修订号，避免覆盖重建期间产生的新数据
-            async with self._response_lock(user_id):
-                if self.storage.get_message_revision(user_id) != message_revision:
-                    return False, "new_messages_arrived", None
-                _, current_revision = self.storage.get_state_record(user_id)
-                if current_revision != revision:
-                    return False, "state_changed_during_rebuild", None
-                if not self.storage.replace_state_if_revision(user_id, revision, rebuilt.to_dict()):
-                    return False, "atomic_replace_conflict", None
-            return True, "", rebuilt
-
-    async def _api_rebuild(self):
-        """POST /rebuild：调用档案重建；成功时在负载中附带新状态。"""
-        user_id = await self._resolve_user_id()
-        if not user_id:
-            return json_response({"error": "user_id_required"})
-        ok, error, state = await self._rebuild_profile(user_id)
-        payload: dict[str, Any] = {
-            "ok": ok,
-            "user_id": user_id,
-            "error": error,
-        }
-        if state is not None:
-            resolution = await self._resolve_persona_id(user_id)
-            payload["state"] = self._state_payload(state, resolution)
-        return json_response(payload)
-
-    def _state_payload(
-        self,
-        state: RelationshipState,
-        resolution: PersonaResolution | None = None,
-    ) -> dict[str, Any]:
-        """组装对外 API 的完整状态负载（含绑定调试、生效阶段与注入开关）。"""
-        persona = resolution or PersonaResolution(error="persona_not_resolved")
-        bond_debug = self._bond_debug_payload(state, persona)
-        payload = state.to_dict()
-        payload.update(CompanionLiteV2Plugin._identity_parts(state.user_id))
-        payload.update(bond_debug)
-        enabled = self.storage.is_user_enabled(state.user_id)
-        payload["enabled"] = enabled
-        payload["active_injection"] = bool(self.plugin_config.active and enabled)
-        payload["relationship_stage"] = state.relationship_stage
-        # 前任关系对外降格为 familiar，避免沿用 close 级语义
-        payload["effective_relationship_stage"] = (
-            "familiar"
-            if bond_debug["relationship_role"] == "former" and state.relationship_stage in {"long_familiar", "close"}
-            else state.relationship_stage
-        )
-        payload["relationship_semantics"] = state.relationship_semantics
-        payload["companion_protocol_version"] = COMPANION_PROTOCOL_VERSION
-        payload["next_compiled_preview"] = (
-            self.context_builder.build(
-                state,
-                max_chars=self.plugin_config.max_context_chars,
-                next_round=state.round_sequence + 1,
-                relationship_role=str(bond_debug["relationship_role"] or "unbound"),
-            )
-            if enabled
-            else ""
-        )
-        return payload
-
-    @staticmethod
-    def _identity_parts(user_id: str) -> dict[str, str]:
-        """把 UMO 拆分为平台/消息类型/目标等身份片段；格式不符时原样兜底。"""
-        parts = user_id.split(":", 2)
-        if len(parts) < 3:
-            return {
-                "umo": user_id,
-                "platform": "",
-                "session_type": "",
-                "session_target": user_id,
-                "session_id": user_id,
-                "sender_id": user_id,
-            }
-        platform, session_type, session_target = parts
-        return {
-            "umo": user_id,
-            "platform": platform,
-            "session_type": session_type,
-            "session_target": session_target,
-            "session_id": user_id,
-            "sender_id": session_target,
-        }
+        async for item in self.commands.reflect(event):
+            yield item
 
     @staticmethod
     def _append_extra_user_content(req: Any, text: str) -> bool:
-        """把文本追加到请求的 extra_user_content_parts；返回是否成功追加。"""
         parts = getattr(req, "extra_user_content_parts", None)
         if TextPart is None or parts is None or not hasattr(parts, "append"):
             return False

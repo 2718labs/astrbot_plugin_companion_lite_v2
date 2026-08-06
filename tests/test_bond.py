@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 import astrbot_plugin_companion_lite_v2.main as main_impl
+from astrbot_plugin_companion_lite_v2.core import persona as persona_mod
 from astrbot_plugin_companion_lite_v2.core.models import (
     ActiveIssue,
     RelationshipState,
@@ -90,7 +91,7 @@ async def collect(command):
 
 def make_plugin(tmp_path, monkeypatch, context=None, session_configs=None):
     monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
-    monkeypatch.setattr(main_impl, "sp", FakeServiceProvider(session_configs))
+    monkeypatch.setattr(persona_mod, "sp", FakeServiceProvider(session_configs))
     return main_impl.CompanionLiteV2Plugin(context or FakeContext(), {})
 
 
@@ -107,9 +108,9 @@ def test_persona_resolution_matches_livingmemory_priority(tmp_path, monkeypatch)
     )
 
     async def run():
-        override = await plugin._resolve_persona_id(override_umo)
-        conversation = await plugin._resolve_persona_id(conversation_umo)
-        default = await plugin._resolve_persona_id(default_umo)
+        override = await plugin.persona.resolve_persona_id(override_umo)
+        conversation = await plugin.persona.resolve_persona_id(conversation_umo)
+        default = await plugin.persona.resolve_persona_id(default_umo)
         await plugin.terminate()
         return override, conversation, default
 
@@ -140,8 +141,8 @@ def test_persona_resolution_fails_closed_for_none_and_unknown(tmp_path, monkeypa
     )
 
     async def run():
-        explicit_none = await plugin._resolve_persona_id(none_umo)
-        unknown = await plugin._resolve_persona_id(unknown_umo)
+        explicit_none = await plugin.persona.resolve_persona_id(none_umo)
+        unknown = await plugin.persona.resolve_persona_id(unknown_umo)
         await plugin.terminate()
         return explicit_none, unknown
 

@@ -4,12 +4,15 @@ from types import SimpleNamespace
 from astrbot.api.platform import MessageType
 
 import astrbot_plugin_companion_lite_v2.main as main_impl
+from astrbot_plugin_companion_lite_v2.core import web as web_mod
 from astrbot_plugin_companion_lite_v2.core.models import (
     DeepEvidence,
     LightEvidence,
     RelationshipState,
     SevereEvidence,
 )
+from astrbot_plugin_companion_lite_v2.core.persona import PersonaResolution
+from astrbot_plugin_companion_lite_v2.core.webui import WebUIController
 from astrbot_plugin_companion_lite_v2.llm import COMPANION_STATIC_PROTOCOL
 from astrbot_plugin_companion_lite_v2.llm.reflection import ReflectionOutcome
 
@@ -168,7 +171,7 @@ def test_same_sender_in_different_private_sessions_has_separate_identity(tmp_pat
 
 
 def test_debug_identity_parts_preserve_colons_inside_session_id():
-    assert main_impl.CompanionLiteV2Plugin._identity_parts("qq:private:thread:42:user-7") == {
+    assert WebUIController.identity_parts("qq:private:thread:42:user-7") == {
         "umo": "qq:private:thread:42:user-7",
         "platform": "qq",
         "session_type": "private",
@@ -186,10 +189,10 @@ def test_debug_actions_accept_user_id_from_json_body(tmp_path, monkeypatch):
             return {"user_id": "botname:FriendMessage:100000001"}
 
     monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
-    monkeypatch.setattr(main_impl, "request", FakeRequest())
+    monkeypatch.setattr(web_mod, "request", FakeRequest())
     plugin = main_impl.CompanionLiteV2Plugin(FakeContext(), {})
     try:
-        assert asyncio.run(plugin._resolve_user_id()) == ("botname:FriendMessage:100000001")
+        assert asyncio.run(plugin.webui.resolve_user_id()) == ("botname:FriendMessage:100000001")
     finally:
         plugin.storage.close()
 
@@ -248,7 +251,7 @@ def test_deep_reflection_gets_latest_twenty_messages_and_runtime_persona(tmp_pat
         plugin._save_state(RelationshipState(user_id=user_id, round_sequence=12))
         plugin._persona_by_user[user_id] = "botname式主人格"
         plugin.reflection.analyze_deep = analyze
-        ok = await plugin._perform_reflection(user_id, 12, "deep")
+        ok = await plugin.reflection_service.perform(user_id, 12, "deep")
         state = await plugin._load_state(user_id)
         await plugin.terminate()
         return ok, state
@@ -285,10 +288,10 @@ def test_reset_clears_profile_messages_queue_and_bond(tmp_path, monkeypatch):
         )
         plugin.storage.claim_interaction("reset-k", user_id, "继续回答")
         plugin.storage.bind_persona("persona-name", user_id)
-        queue = plugin._reflection_queues.setdefault(user_id, [])
+        queue = plugin.reflection_service.queues.setdefault(user_id, [])
         queue.append((4, "light"))
 
-        deleted = await plugin._reset_user(user_id)
+        deleted = await plugin.webui.reset_user(user_id)
         state = await plugin._load_state(user_id)
         messages = plugin.storage.get_recent_messages(user_id)
         bond = plugin.storage.get_bond("persona-name")
@@ -339,7 +342,7 @@ def test_light_reflection_records_none_as_a_visible_success(tmp_path, monkeypatc
             plugin.storage.complete_interaction(key, user_id, f"assistant-{round_number}", round_number)
         plugin._save_state(RelationshipState(user_id=user_id, round_sequence=2))
         plugin.reflection.analyze_light = analyze
-        ok = await plugin._perform_reflection(user_id, 2, "light")
+        ok = await plugin.reflection_service.perform(user_id, 2, "light")
         state = await plugin._load_state(user_id)
         await plugin.terminate()
         return ok, state
@@ -359,7 +362,7 @@ def test_initialize_recovers_latest_unobserved_light_round(tmp_path, monkeypatch
     plugin = main_impl.CompanionLiteV2Plugin(FakeContext(), {})
     plugin._save_state(RelationshipState(user_id="test:private:user", round_sequence=4))
     scheduled = []
-    plugin._enqueue_reflection = lambda user_id, target_round, kind: scheduled.append((user_id, target_round, kind)) or True
+    plugin.reflection_service.enqueue = lambda user_id, target_round, kind: scheduled.append((user_id, target_round, kind)) or True
 
     async def run():
         await plugin.initialize()
@@ -384,9 +387,23 @@ def test_v2_registers_session_and_message_debug_routes(tmp_path, monkeypatch):
         plugin.storage.close()
 
 
+def test_web_api_guard_returns_json_error_on_exception(tmp_path, monkeypatch):
+    monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
+    monkeypatch.setattr(web_mod, "json_response", lambda payload: payload)
+    plugin = main_impl.CompanionLiteV2Plugin(FakeContext(), {})
+    try:
+        async def boom():
+            raise RuntimeError("boom")
+
+        result = asyncio.run(plugin.webui._guarded(boom)())
+        assert result == {"error": "internal_error"}
+    finally:
+        plugin.storage.close()
+
+
 def test_sessions_api_uses_management_page_safety_ceiling(tmp_path, monkeypatch):
     monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
-    monkeypatch.setattr(main_impl, "json_response", lambda payload: payload)
+    monkeypatch.setattr(web_mod, "json_response", lambda payload: payload)
     plugin = main_impl.CompanionLiteV2Plugin(FakeContext(), {})
     captured = {}
 
@@ -396,7 +413,7 @@ def test_sessions_api_uses_management_page_safety_ceiling(tmp_path, monkeypatch)
 
     monkeypatch.setattr(plugin.storage, "list_states", list_states)
     try:
-        result = asyncio.run(plugin._api_sessions())
+        result = asyncio.run(plugin.webui.api_sessions())
         assert captured["limit"] == 1000
         assert result == {"sessions": [], "count": 0}
     finally:
@@ -429,13 +446,13 @@ def test_disabled_umo_skips_capture_injection_and_all_llm_analysis(tmp_path, mon
     async def run():
         await plugin.initialize()
         await plugin._load_state(user_id)
-        result = await plugin._set_user_enabled(user_id, False)
+        result = await plugin.webui.set_user_enabled(user_id, False)
         plugin.reflection.analyze_severe = fail_analysis
         plugin.reflection.analyze_light = fail_analysis
         plugin.reflection.analyze_deep = fail_analysis
         await plugin.inject_companion_context(event, request)
         await plugin.capture_llm_response(event, response)
-        reflected = await plugin._perform_reflection(user_id, 2, "deep")
+        reflected = await plugin.reflection_service.perform(user_id, 2, "deep")
         state = await plugin._load_state(user_id)
         messages = plugin.storage.get_recent_messages(user_id)
         await plugin.terminate()
@@ -458,10 +475,10 @@ def test_per_umo_toggle_requires_existing_state_and_survives_reset(tmp_path, mon
 
     async def run():
         await plugin.initialize()
-        unknown = await plugin._set_user_enabled("missing", False)
+        unknown = await plugin.webui.set_user_enabled("missing", False)
         await plugin._load_state("existing")
-        disabled = await plugin._set_user_enabled("existing", False)
-        await plugin._reset_user("existing")
+        disabled = await plugin.webui.set_user_enabled("existing", False)
+        await plugin.webui.reset_user("existing")
         still_disabled = plugin.storage.is_user_enabled("existing")
         await plugin.terminate()
         return unknown, disabled, still_disabled
@@ -484,7 +501,7 @@ def test_enabled_api_uses_json_body_and_supports_disable_then_enable(tmp_path, m
 
     fake_request = FakeRequest()
     monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
-    monkeypatch.setattr(main_impl, "request", fake_request)
+    monkeypatch.setattr(web_mod, "request", fake_request)
     plugin = main_impl.CompanionLiteV2Plugin(FakeContext(), {})
     user_id = "botname:FriendMessage:100000001"
 
@@ -492,10 +509,10 @@ def test_enabled_api_uses_json_body_and_supports_disable_then_enable(tmp_path, m
         await plugin.initialize()
         await plugin._load_state(user_id)
         fake_request.body = {"user_id": user_id, "enabled": False}
-        await plugin._api_enabled()
+        await plugin.webui.api_enabled()
         after_disable = plugin.storage.is_user_enabled(user_id)
         fake_request.body = {"user_id": user_id, "enabled": True}
-        await plugin._api_enabled()
+        await plugin.webui.api_enabled()
         after_enable = plugin.storage.is_user_enabled(user_id)
         await plugin.terminate()
         return after_disable, after_enable
@@ -515,7 +532,7 @@ def test_legacy_reset_path_decodes_chinese_umo_without_creating_alias(tmp_path, 
     async def run():
         await plugin.initialize()
         await plugin._load_state(user_id)
-        await plugin._api_reset_path(double_encoded)
+        await plugin.webui.api_reset_path(double_encoded)
         states = {item["user_id"] for item in plugin.storage.list_states()}
         await plugin.terminate()
         return states
@@ -534,12 +551,12 @@ def test_reset_rejects_unknown_umo_instead_of_creating_state(tmp_path, monkeypat
             return {"user_id": "botname%3Aunknown"}
 
     monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
-    monkeypatch.setattr(main_impl, "request", FakeRequest())
+    monkeypatch.setattr(web_mod, "request", FakeRequest())
     plugin = main_impl.CompanionLiteV2Plugin(FakeContext(), {})
 
     async def run():
         await plugin.initialize()
-        await plugin._api_reset()
+        await plugin.webui.api_reset()
         states = plugin.storage.list_states()
         await plugin.terminate()
         return states
@@ -692,9 +709,9 @@ def test_concurrent_deep_reflection_applies_the_round_only_once(tmp_path, monkey
             plugin.storage.complete_interaction(key, user_id, f"answer-{round_number}", round_number)
         plugin._save_state(RelationshipState(user_id=user_id, round_sequence=6))
         plugin.reflection.analyze_deep = deep
-        first = asyncio.create_task(plugin._perform_reflection(user_id, 6, "deep"))
+        first = asyncio.create_task(plugin.reflection_service.perform(user_id, 6, "deep"))
         await entered.wait()
-        second = asyncio.create_task(plugin._perform_reflection(user_id, 6, "deep"))
+        second = asyncio.create_task(plugin.reflection_service.perform(user_id, 6, "deep"))
         await asyncio.sleep(0)
         release.set()
         results = await asyncio.gather(first, second)
@@ -720,7 +737,7 @@ def test_bonded_rebuild_is_rejected_before_any_analysis_call(tmp_path, monkeypat
     calls = 0
 
     async def resolve(_user_id):
-        return main_impl.PersonaResolution(persona_id="persona-name", source="default")
+        return PersonaResolution(persona_id="persona-name", source="default")
 
     async def must_not_run(*_args, **_kwargs):
         nonlocal calls
@@ -742,11 +759,11 @@ def test_bonded_rebuild_is_rejected_before_any_analysis_call(tmp_path, monkeypat
         )
         plugin._save_state(original)
         plugin.storage.bind_persona("persona-name", user_id)
-        plugin._resolve_persona_id = resolve
+        plugin.persona.resolve_persona_id = resolve
         plugin.reflection.analyze_light = must_not_run
         plugin.reflection.analyze_deep = must_not_run
         before_messages = plugin.storage.get_recent_messages(user_id, 20)
-        result = await plugin._rebuild_profile(user_id)
+        result = await plugin.webui.rebuild_profile(user_id)
         persisted = await plugin._load_state(user_id)
         after_messages = plugin.storage.get_recent_messages(user_id, 20)
         await plugin.terminate()
@@ -838,7 +855,7 @@ def test_observe_rebuild_preserves_messages_and_replaces_profile_atomically(tmp_
         before_messages = plugin.storage.get_recent_messages(user_id, 20)
         plugin.reflection.analyze_light = light
         plugin.reflection.analyze_deep = deep
-        ok, error, rebuilt = await plugin._rebuild_profile(user_id)
+        ok, error, rebuilt = await plugin.webui.rebuild_profile(user_id)
         after_messages = plugin.storage.get_recent_messages(user_id, 20)
         await plugin.terminate()
         return ok, error, rebuilt, before_messages, after_messages
@@ -887,7 +904,7 @@ def test_rebuild_failure_keeps_original_profile(tmp_path, monkeypatch):
         )
         plugin._save_state(original)
         plugin.reflection.analyze_light = invalid
-        ok, _, _ = await plugin._rebuild_profile(user_id)
+        ok, _, _ = await plugin.webui.rebuild_profile(user_id)
         persisted = await plugin._load_state(user_id)
         await plugin.terminate()
         return ok, persisted
