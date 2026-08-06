@@ -121,10 +121,8 @@ class CompanionLiteV2Plugin(Star):
         )
 
     async def terminate(self) -> None:
-        """停止后台任务、还原桥接并关闭 V2 独立数据库连接。"""
+        """停止后台任务并关闭 V2 独立数据库连接。"""
         self._initialized = False
-        if self.silence_bridge.managed:
-            await self.silence_bridge.sync(force_restore=True)
         for task in list(self._background_tasks):
             task.cancel()
         self.storage.close()
@@ -395,6 +393,7 @@ class CompanionLiteV2Plugin(Star):
                 if not self._append_extra_user_content(req, compiled):
                     req.prompt = (f"{getattr(req, 'prompt', '')}\n\n{compiled}").strip()
             if self.plugin_config.active:
+                self.silence_bridge.detach_polite_silence_prompt(event, req)
                 if self.silence_bridge.should_inject_silence(state):
                     self.silence_bridge.append_prompt(event, req, state)
                 if self.silence_bridge.consume_recovery(state, event, req):

@@ -181,32 +181,31 @@ def _silence_context(trigger=30):
     return context, instance
 
 
-def test_sync_silence_bridge_manages_and_restores():
+def test_sync_silence_bridge_keeps_config_and_untracks():
     context, instance = _silence_context(30)
     plugin = _plugin(context, V2Config(operation_mode="active", bridge_polite_silence=True))
     asyncio.run(plugin.silence_bridge.sync())
-    assert instance.config["trigger_percent"] == 0
+    assert instance.config["trigger_percent"] == 30
     assert plugin.silence_bridge.managed is True
-    assert plugin.silence_bridge.original_trigger == 30
 
     instance.config["trigger_percent"] = 50
     asyncio.run(plugin.silence_bridge.sync())
     assert instance.config["trigger_percent"] == 50
+    assert plugin.silence_bridge.managed is True
 
     plugin.plugin_config = V2Config(bridge_polite_silence=False)
     asyncio.run(plugin.silence_bridge.sync())
-    assert instance.config["trigger_percent"] == 30
+    assert instance.config["trigger_percent"] == 50
     assert plugin.silence_bridge.managed is False
 
 
-def test_sync_silence_bridge_force_restore():
+def test_sync_silence_bridge_never_mutates_config():
     context, instance = _silence_context(30)
     plugin = _plugin(context, V2Config(operation_mode="active", bridge_polite_silence=True))
     asyncio.run(plugin.silence_bridge.sync())
-    assert instance.config["trigger_percent"] == 0
-    asyncio.run(plugin.silence_bridge.sync(force_restore=True))
     assert instance.config["trigger_percent"] == 30
-    assert plugin.silence_bridge.managed is False
+    assert instance.config == {"trigger_percent": 30}
+    assert plugin.silence_bridge.managed is True
 
 
 def test_sync_silence_bridge_missing_plugin_noop():
@@ -237,6 +236,93 @@ def test_sync_silence_bridge_observe_mode_noop():
     asyncio.run(plugin.silence_bridge.sync())
     assert plugin.silence_bridge.managed is False
     assert instance.config["trigger_percent"] == 30
+
+
+def test_detach_silence_prompt_tail_match():
+    context, instance = _silence_context()
+    instance.config["ignore_prompt"] = "你可以选择拒答"
+    plugin = _plugin(context)
+    event = SimpleNamespace(
+        get_sender_id=lambda: "123",
+        get_sender_name=lambda: "昵称",
+    )
+    fragment = (
+        '你可以选择拒答\n(系统级通知：当前正与你对话的用户昵称为 昵称，ID为 123，'
+        '若选择拒答请使用格式：<ignore id="123" duration="分钟数" />)'
+    )
+    req = _req(f"base\n{fragment}")
+    assert plugin.silence_bridge.detach_polite_silence_prompt(event, req) is True
+    assert req.system_prompt == "base"
+
+
+def test_detach_silence_prompt_exact_match():
+    context, instance = _silence_context()
+    instance.config["ignore_prompt"] = "你可以选择拒答"
+    plugin = _plugin(context)
+    event = SimpleNamespace(
+        get_sender_id=lambda: "123",
+        get_sender_name=lambda: "昵称",
+    )
+    fragment = (
+        '你可以选择拒答\n(系统级通知：当前正与你对话的用户昵称为 昵称，ID为 123，'
+        '若选择拒答请使用格式：<ignore id="123" duration="分钟数" />)'
+    )
+    req = _req(fragment)
+    assert plugin.silence_bridge.detach_polite_silence_prompt(event, req) is True
+    assert req.system_prompt == ""
+
+
+def test_detach_silence_prompt_contains_fallback():
+    context, instance = _silence_context()
+    instance.config["ignore_prompt"] = "你可以选择拒答"
+    plugin = _plugin(context)
+    event = SimpleNamespace(
+        get_sender_id=lambda: "123",
+        get_sender_name=lambda: "昵称",
+    )
+    fragment = (
+        '你可以选择拒答\n(系统级通知：当前正与你对话的用户昵称为 昵称，ID为 123，'
+        '若选择拒答请使用格式：<ignore id="123" duration="分钟数" />)'
+    )
+    req = _req(f"base\n{fragment}\n颜文字指令")
+    assert plugin.silence_bridge.detach_polite_silence_prompt(event, req) is True
+    assert req.system_prompt == "base\n\n颜文字指令"
+
+
+def test_detach_silence_prompt_no_match():
+    context, _ = _silence_context()
+    plugin = _plugin(context)
+    event = SimpleNamespace(
+        get_sender_id=lambda: "123",
+        get_sender_name=lambda: "昵称",
+    )
+    req = _req("普通提示")
+    assert plugin.silence_bridge.detach_polite_silence_prompt(event, req) is False
+    assert req.system_prompt == "普通提示"
+
+
+def test_detach_silence_prompt_empty_ignore_prompt():
+    context, instance = _silence_context()
+    instance.config["ignore_prompt"] = ""
+    plugin = _plugin(context)
+    event = SimpleNamespace(get_sender_id=lambda: "123", get_sender_name=lambda: "昵称")
+    req = _req("base")
+    assert plugin.silence_bridge.detach_polite_silence_prompt(event, req) is False
+    assert req.system_prompt == "base"
+
+
+def test_detach_silence_prompt_without_sender_name():
+    context, instance = _silence_context()
+    instance.config["ignore_prompt"] = "你可以选择拒答"
+    plugin = _plugin(context)
+    event = SimpleNamespace(get_sender_id=lambda: "123")
+    fragment = (
+        '你可以选择拒答\n(系统级通知：当前正与你对话的用户昵称为 123，ID为 123，'
+        '若选择拒答请使用格式：<ignore id="123" duration="分钟数" />)'
+    )
+    req = _req(f"base\n{fragment}")
+    assert plugin.silence_bridge.detach_polite_silence_prompt(event, req) is True
+    assert req.system_prompt == "base"
 
 
 def test_append_silence_prompt_default_template():
