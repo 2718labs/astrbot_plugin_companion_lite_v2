@@ -502,13 +502,17 @@ def test_silence_event_recorded_with_clamped_duration(tmp_path, monkeypatch):
         assert plugin.storage.claim_interaction(key, user_id, "你好")
         await plugin.capture_llm_response(event, response)
         state = await plugin._load_state(user_id)
+        messages = plugin.storage.get_recent_messages(user_id)
         await plugin.terminate()
-        return state
+        return state, messages
 
-    state = asyncio.run(run())
+    state, messages = asyncio.run(run())
     assert state.silence_count == 1
     assert state.last_silence_event["target_id"] == "user"
     assert state.last_silence_event["duration_minutes"] == 15
+    assert all(
+        "<ignore" not in str(item.get("content") or "") for item in messages
+    ), "入库文本不应包含拒答标签"
 
 
 def test_per_umo_toggle_requires_existing_state_and_survives_reset(tmp_path, monkeypatch):

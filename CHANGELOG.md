@@ -15,6 +15,7 @@
 
 - 拒答事件记录的时长按 polite_silence 实际配置的 `min_ignore_minutes / max_ignore_minutes` 夹取后再落库，与执行端口径一致；“上一轮沉默了 X 分钟”的恢复告知不再与实际沉默时长对不上。
 - 缺省与非法配置回退 `10..1440`，与 polite_silence 默认一致。
+- 修复响应侧捕获顺序：此前 `priority=-10` 实际晚于 polite_silence 执行，真实环境拿不到未清理文本，拒答事件与恢复告知不会生效；改为 `priority=10` 先于 polite_silence 捕获，并在入库前清洗 `<ignore>` 标签，避免分析缓冲混入 XML。
 
 ### 验证
 

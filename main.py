@@ -399,8 +399,9 @@ class CompanionLiteV2Plugin(Star):
                 if self.silence_bridge.consume_recovery(state, event, req):
                     self._save_state(state)
 
-    @filter.on_llm_response(priority=-10)
+    @filter.on_llm_response(priority=10)
     async def capture_llm_response(self, event: AstrMessageEvent, resp=None) -> None:
+        """在 polite_silence 清理响应之前捕获，解析拒答标签并清洗后入库。"""
         if not self._initialized or resp is None or not self._is_private(event) or not self.plugin_config.enable_message_capture:
             return
         if (
@@ -412,7 +413,8 @@ class CompanionLiteV2Plugin(Star):
         raw_assistant_text = str(getattr(resp, "completion_text", "") or "").strip()
         if not raw_assistant_text:
             return
-        assistant_text = self._truncate_captured_text(raw_assistant_text)
+        clean_assistant_text = self.silence_bridge.IGNORE_TAG_RE.sub("", raw_assistant_text).strip()
+        assistant_text = self._truncate_captured_text(clean_assistant_text)
         user_id = self._user_identity(event)
         if not user_id or not self.storage.is_user_enabled(user_id):
             return

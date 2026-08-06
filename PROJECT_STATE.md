@@ -95,7 +95,7 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 
 提示携带真实 sender_id 与建议时长，只说明“可以选择礼貌性沉默”及指令格式，最终是否输出 `<ignore>` 由主模型自主决定；polite_silence 的时长上下限与白名单仍然生效。拒答指令与恢复告知追加在 system_prompt 尾部：前缀（人格与固定协议）保持字节稳定，无注入轮次的 prompt 缓存不受影响；sender_id 统一做引号清洗，避免破坏 `<ignore>` 标签属性。
 
-响应侧以 `priority=-10` 优先于 polite_silence 取得未清理文本，解析 `<ignore>` 标签（自闭合与双标签、属性大小写不敏感，取 id 与 duration），确认 polite_silence 已注册才记录，避免幽灵事件。事件写入 `last_silence_event`（target_id、duration_minutes、source_round、created_at）并累加 `silence_count`，随 `companion_state` 落库，不需要数据库迁移。能再次收到该用户消息即视为拒答已结束（含管理员手动解封），此时一次性告知主模型“上一轮沉默了 X 分钟”，随后清除事件，不重复注入。`silence_count` 本轮只用于记录、展示与诊断，不参与关系数值计算。
+响应侧以 `priority=10` 先于 polite_silence 取得未清理文本，解析 `<ignore>` 标签（自闭合与双标签、属性大小写不敏感，取 id 与 duration），确认 polite_silence 已注册才记录，避免幽灵事件；入库前清洗 `<ignore>` 标签，避免分析缓冲混入 XML。事件写入 `last_silence_event`（target_id、duration_minutes、source_round、created_at）并累加 `silence_count`，随 `companion_state` 落库，不需要数据库迁移。能再次收到该用户消息即视为拒答已结束（含管理员手动解封），此时一次性告知主模型“上一轮沉默了 X 分钟”，随后清除事件，不重复注入。`silence_count` 本轮只用于记录、展示与诊断，不参与关系数值计算。
 
 ### WebUI 与状态展示
 
