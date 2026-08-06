@@ -2,10 +2,12 @@
 
 最后更新：2026-08-06
 当前版本：`2.1.0`
-当前阶段：2.1.0 桥接与重构就绪，待发布
+当前阶段：2.1.0 桥接、WebUI 精简与维护拆分已发布
 运行模式：`active`
 
 ## 当前结论
+
+2.1.0 在 2.0.2 之上落地 polite_silence 可选桥接与维护拆分：active 模式下由一个开关接管 polite_silence 的概率注入，由 Companion 状态机决定何时提示主模型输出 `<ignore>` 拒答；插件自身解析拒答标签、维护拒答事件，并在对方拒答结束回来时一次性告知主模型沉默时长。WebUI 同步新增桥接徽章与“联动插件”开关，同时精简顶部同步文案、移除感受注入追踪卡片，并在关系侧写与 `/clv2_status` 补充拒答摘要。main.py 按职责拆分为 `core/` 服务模块，入口只保留事件处理与组装，行为不变。
 
 2.0.2 在稳定版运行语义与编辑式管理台之上，收紧轻、深分析之间的关系语义一致性，并约束深分析印象只写主观感受、低置信度不落地。主人格提示使用“稳定 system 协议 + 动态五标签状态”：静态协议要求先决定是否愿意回答，动态状态告诉主人格本轮答多少、站多近、处于什么情况、内心怎么想以及如何表达。Companion 不注入人格侧情绪保护护栏。
 
@@ -71,11 +73,41 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 | 反思模型 | 当前配置的模型提供商 |
 | 运行版本 | `2.1.0` |
 | 主人格注入 | 已启用 |
+| 礼貌性沉默桥接 | 已启用并接管（`trigger_percent = 0`） |
 | 正式绑定记录 | `0` |
 | 关系档案 | `2` |
 | 已保存消息 | `2` |
 
 重置故障已通过真实 HTTP 路径 API 验证：状态、消息、待处理交互和绑定会一起清空，不在公开文档记录实际 UMO 或会话数据。
+
+## 2.1.0 桥接与维护
+
+### 礼貌性沉默桥接
+
+桥接链由一个开关控制（`bridge_polite_silence`，默认关闭）。开启且处于 `active` 时，插件探测 polite_silence 实例并把其 `trigger_percent` 置 0，避免两套概率触发并存；原值被记录，开关关闭或插件卸载时还原。接管只执行一次，用户之后在面板手动修改 `trigger_percent` 会得到尊重。未安装 polite_silence、缺配置字段、`observe` 模式或开关关闭时整条链 no-op。
+
+拒答注入时机由 Companion 状态机决定，而不是概率：
+
+- `disengaged` 必注入（建议 90 分钟）；
+- `guarded` 且活动问题为 `boundary_violation / degradation / coercion`、阶段为 `noticed / expressed` 时注入（建议 30 分钟）；
+- `light_guidance.reminder == hold_boundary` 时注入；
+- `repairing` 阶段一律不注入，给修复留出空间。
+
+提示携带真实 sender_id 与建议时长，只说明“可以选择礼貌性沉默”及指令格式，最终是否输出 `<ignore>` 由主模型自主决定；polite_silence 的时长上下限与白名单仍然生效。拒答指令与恢复告知追加在 system_prompt 尾部：前缀（人格与固定协议）保持字节稳定，无注入轮次的 prompt 缓存不受影响；sender_id 统一做引号清洗，避免破坏 `<ignore>` 标签属性。
+
+响应侧以 `priority=-10` 优先于 polite_silence 取得未清理文本，解析 `<ignore>` 标签（自闭合与双标签、属性大小写不敏感，取 id 与 duration），确认 polite_silence 已注册才记录，避免幽灵事件。事件写入 `last_silence_event`（target_id、duration_minutes、source_round、created_at）并累加 `silence_count`，随 `companion_state` 落库，不需要数据库迁移。能再次收到该用户消息即视为拒答已结束（含管理员手动解封），此时一次性告知主模型“上一轮沉默了 X 分钟”，随后清除事件，不重复注入。`silence_count` 本轮只用于记录、展示与诊断，不参与关系数值计算。
+
+### WebUI 与状态展示
+
+- 顶部状态条改为低调的“实时 / 已暂停”指示，新增桥接状态徽章（已接管 / 待接管 / 未启用 / observe 不接管 / 未安装），只展示不跳转。
+- 启停管理新增“联动插件”区块，拨动开关调用 `POST /page/silence_bridge`，写入 AstrBot 配置并立即同步运行时；与配置面板读同一份配置。
+- 移除“感受注入追踪”卡片，异步时序提示移入工程诊断；关系侧写新增拒答信号，工程诊断区展示 `last_silence_event` 原始字段。
+- 六轮大总结周期卡补充周期起点、已推进轮数与周期消息数，运行元信息下沉至周期卡。
+- `/clv2_status` 增加拒答统计行（累计次数 + 最近一次时长与轮次）。
+
+### 维护
+
+main.py 由 1509 行拆分为 500 行入口与 `core/` 服务模块：`persona.py`、`silence_bridge.py`、`reflection_service.py`、`webui.py`、`commands.py`、`protocol.py`、`web.py`。拆分顺手修复了 `core/webui.py` 与 `llm` 之间的循环导入，协议常量下沉到 `core/protocol.py` 切断反向依赖。`reflection_service.perform_locked` 拆分为准备、标记运行、应用结果三个阶段；调试页 Web API 增加统一异常兜底，handler 异常收敛为 JSON 错误响应，不再裸 500。
 
 ## 主人格提示词语义审计
 
@@ -154,6 +186,9 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 
 ## 验证结果
 
+- 源码 141 项测试通过；Ruff 通过；源码与运行实例同步一致。
+- 桥接专项测试覆盖：`<ignore>` 标签解析（自闭合 / 双标签 / 属性大小写 / 缺字段 / 无标签）、事件写入、恢复告知只注入一次后清除、接管置 0 与关闭还原、各姿态与问题组合的触发判断（含 `repairing` 不注入）。
+- WebUI 手工验收：启停管理拨开关后徽章变为“已接管”且配置面板同键同步；未安装 polite_silence 时徽章显示未安装；感受注入追踪卡片消失；关系侧写出现拒答摘要；`/clv2_status` 输出拒答行。
 - AstrBot 插件开发指南合规审计：元数据、插件命名、数据目录、动态提示词临时内容块、Page Bridge、依赖声明、Logo、Ruff 与包体限制均通过。
 - 源码：104 项测试通过；Ruff 通过。
 - 稳定版基线：100 项测试通过；Ruff 通过。
@@ -186,6 +221,9 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 4. `severe / light / deep` 的交接语义已审计；分析模型仍可能提交不理想文本，因此关系权限和空感受不变量继续由代码兜底。
 5. `pending_interaction.fail_interaction()` 仍未接入无最终回复或取消 Hook，长期可能积累不参与分析的待定消息。
 6. 本地严重候选筛查只负责低成本召回；隐晦、跨语言和跨多轮侵犯仍主要依赖后续分析。
+7. `silence_count` 本轮只用于记录、展示与诊断，不参与关系数值计算；后续如需让拒答频率影响状态，需要另行设计结算规则。
+8. 桥接以“再次收到该用户消息”判定拒答已结束，无法区分自然结束与管理员手动解封。
+9. 拒答指令与恢复告知追加在 system_prompt 尾部，触发轮会牺牲该轮一次 prompt 缓存命中；无注入轮次的稳定前缀缓存不受影响。
 
 ## 重新接手时
 
@@ -195,5 +233,6 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 3. 用一条真实私聊检查“最近注入”是否变为“是”
 4. 观察主人格是否按新五字段语义行动
 5. 用真实对话复测第 3 轮条件拒绝和第 6 轮持久感受
-6. 不修改其他插件或 LivingMemory 数据
+6. 桥接开启时确认徽章为“已接管”、触发轮提示含拒答指令、拒答事件入库、对方回来只注入一次恢复告知
+7. 不修改其他插件或 LivingMemory 数据
 ```
