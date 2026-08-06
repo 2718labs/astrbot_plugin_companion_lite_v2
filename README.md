@@ -5,7 +5,7 @@
   <p>面向 AstrBot 私聊场景的轻量情感陪伴与关系演化插件。关系可以从陌生走向熟稔，也会因单向索取、冒犯或边界施压而冷却，并在可靠修复后逐步回暖。</p>
   <p>
     <a href="https://github.com/AstrBotDevs/AstrBot"><img src="https://img.shields.io/badge/AstrBot-Plugin-5B67F1?style=flat-square" alt="AstrBot Plugin" /></a>
-    <a href="https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2/releases/tag/v2.0.2"><img src="https://img.shields.io/badge/release-v2.0.2-7357D9?style=flat-square" alt="Release v2.0.2" /></a>
+    <a href="https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2/releases"><img src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2F6TBWhite%2Fastrbot_plugin_companion_lite_v2%2Fmain%2Fmetadata.yaml&query=version&label=release&color=7357D9&style=flat-square" alt="Release" /></a>
     <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2F855A?style=flat-square" alt="MIT License" /></a>
   </p>
@@ -26,7 +26,7 @@
 
 插件自带完整 WebUI 管理面板：既能像翻阅人物档案一样查看单个会话的关系侧写、互动节奏、语义投影和消息时间线，也能总览、搜索并独立启停全部已知会话；工程诊断默认收起，需要排障时再展开。
 
-当前稳定版本为 `2.0.2`。新安装默认使用 `observe`，只记录、分析并生成预览；确认行为符合预期后再切换为 `active`，让关系上下文进入主模型请求。
+当前版本为 `2.1.0`。新安装默认使用 `observe`，只记录、分析并生成预览；确认行为符合预期后再切换为 `active`，让关系上下文进入主模型请求。
 
 ## 为什么另做 V2
 

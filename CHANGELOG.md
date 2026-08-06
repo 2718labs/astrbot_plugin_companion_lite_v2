@@ -2,7 +2,7 @@
 
 本项目遵循语义化版本风格；alpha 阶段允许调整内部数据结构和提示协议，但 V2 始终不迁移或修改 V1 与 LivingMemory 的数据。
 
-## Unreleased
+## 2.1.0 - 2026-08-06
 
 ### polite_silence 桥接
 
