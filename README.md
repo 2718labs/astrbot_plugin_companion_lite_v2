@@ -47,7 +47,7 @@ V1 在多轮重构后已不再适合作为运行基线，因此本项目以独�
 | 可靠修复 | 具体承接、解释和改变能够软化姿态；两次独立行为确认后才清除未解决问题 | 泛泛道歉、低置信判断或一次性示好不会立即洗白 |
 | 正式关系 | 管理员可为人格绑定唯一正式窗口，允许更自然的关心、偏心和熟稔表达 | 正式身份不覆盖当前边界、未解决问题或其他窗口的普通投入 |
 | 分层观察 | 每两个完整来回轻分析一次，每六轮深分析一次，让变化既及时又不过度抖动 | 普通消息在主回复前不额外调用分析模型；模型只提交证据 |
-| 可选拒答联动 | 安装 polite_silence 后，可由 Companion 状态机决定何时礼貌性沉默，polite_silence 只负责执行拒答 | 默认关闭；未安装或未开启时零影响 |
+| 可选拒答联动 | 安装 polite_silence 后，私聊拒答时机由 Companion 状态机决定，群聊保留 polite_silence 原概率注入；polite_silence 只负责执行拒答 | 默认关闭；未安装或未开启时零影响 |
 | 五维语义 | 将关系编译成 `投入 / 关系 / 处境 / 感受 / 表达`，主人格无需理解分数和内部标签 | 只改变本轮关系上下文，不接管主人格或保存用户事实 |
 | 完整 WebUI | 查看关系侧写、六轮节奏、语义预览、消息时间线和工程诊断，并总览管理全部会话 | 新安装默认仅观察；确认预览符合预期后再开启实际注入 |
 
@@ -107,16 +107,18 @@ data/plugin_data/astrbot_plugin_companion_lite_v2/
 | `reflection_provider_id` | `""`      | 留空时使用当前默认模型提供商                        |
 | `persona_prompt`         | `""`      | 深分析使用的稳定人格参考                          |
 | `max_context_chars`      | `340`     | 动态关系上下文预算，可配置范围 `260..340`            |
-| `bridge_polite_silence`  | `false`   | 接管 polite_silence 的拒答注入，由状态机决定注入时机    |
+| `bridge_polite_silence`  | `false`   | 私聊拒答提示由 Companion 状态机接管，群聊保持 polite_silence 原概率注入 |
 | `silence_ignore_prompt`  | `""`      | 自定义拒答提示模板，占位符 `{sender_id}`、`{minutes}`；留空用内置 |
 
 ### 第三方插件桥接
 
 | 插件 | 接入内容 | 启用与边界 |
 | --- | --- | --- |
-| [astrbot_plugin_polite_silence](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence) | 接管其概率注入，由 Companion 状态机决定何时提示主模型输出 `<ignore>` 拒答；响应侧解析标签并记录拒答事件（累计次数 + 最近一次详情） | `bridge_polite_silence` 默认关闭；仅在 `active` 模式接管，未安装或 observe 模式整条链 no-op；接管只做一次并尊重手动改回的 `trigger_percent`，卸载时还原 |
+| [astrbot_plugin_polite_silence](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence) | 私聊维度：摘除其概率注入，由 Companion 状态机决定何时提示主模型输出 `<ignore>` 拒答；响应侧解析标签并记录拒答事件（累计次数 + 最近一次详情，时长按其实时配置夹取） | `bridge_polite_silence` 默认关闭；仅在 `active` 模式生效，未安装或 observe 模式整条链 no-op；不修改 polite_silence 配置，群聊与关闭陪伴的私聊保持其原概率注入 |
 
 状态机触发时机：`disengaged` 必注入；`guarded` 且存在边界、贬低或胁迫问题（`noticed / expressed`），或 `hold_boundary` 提醒生效时注入；修复期不注入。模型在回复中自主输出 `<ignore id="..." duration="..." />`，polite_silence 负责解析并执行沉默，Companion 同时记录拒答事件，对方在沉默结束后回来时一次性告知主模型沉默时长。
+
+桥接不修改 polite_silence 的任何配置：开启后只把私聊请求中 polite_silence 已注入的提示摘除（尾部精确匹配，失败时回退全串包含匹配），再按状态机决定是否注入 Companion 的拒答提示；群聊与关闭陪伴的私聊完全保持 polite_silence 的原概率注入。已向上游提交“私聊与群聊独立触发概率”的 feature request 与实现草案，合入后将切换为直接关闭私聊概率、摘除逻辑整体移除。
 
 拒答指令与恢复告知追加在 system_prompt 尾部，前缀（人格与固定协议）保持稳定，不影响无注入轮次的 prompt 缓存。也可以在调试页“启停管理 → 联动插件”中直接拨动开关，与 AstrBot 配置面板同源同步。
 

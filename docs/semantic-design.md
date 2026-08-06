@@ -141,12 +141,14 @@ CompanionLite V2 是关系侧车，不是主人格、用户画像或长期事实
 
 ## 礼貌性沉默桥接
 
-Companion 不直接执行“不回应”，而是可选地与 `astrbot_plugin_polite_silence` 联动：决策与执行分离，Companion 决定何时提示拒答，polite_silence 负责解析 `<ignore>` 标签并在一段时间内拦截该用户消息。
+Companion 不直接执行“不回应”，而是可选地与 `astrbot_plugin_polite_silence` 联动：决策与执行分离，Companion 决定私聊何时提示拒答，polite_silence 负责解析 `<ignore>` 标签并在一段时间内拦截该用户消息。
 
 ### 接管与降级
 
-- `bridge_polite_silence` 开启且处于 `active` 时，插件探测 polite_silence 实例并把其 `trigger_percent` 置 0，避免两套概率触发并存；原值被记录，开关关闭或插件卸载时还原。
-- 接管只执行一次，用户之后在面板手动修改 `trigger_percent` 会得到尊重；未安装 polite_silence、缺配置字段、`observe` 模式或开关关闭时整条链 no-op。
+- `bridge_polite_silence` 开启且处于 `active` 时，插件只接管**打开陪伴的私聊**：在 polite_silence 注入之后，把追加到该系统 prompt 尾部的提示摘除（尾部精确匹配，失败时回退全串包含匹配，兜住其他插件在中间追加内容的情况），再由状态机决定是否注入 Companion 的拒答提示。
+- 桥接不修改 polite_silence 的任何配置：群聊与关闭陪伴的私聊完全保持 polite_silence 的原概率注入，面板里的 `trigger_percent` 等参数实时生效，关闭开关或卸载插件时也无需还原。
+- 未安装 polite_silence、`observe` 模式或开关关闭时整条链 no-op，不影响既有行为。
+- 已向上游提交“私聊与群聊独立触发概率”的 feature request 与实现草案：合入后 Companion 将切换为直接关闭私聊概率维度，摘除逻辑整体移除，私聊从源头不再被概率注入。
 
 ### 触发条件
 
@@ -161,7 +163,8 @@ Companion 不直接执行“不回应”，而是可选地与 `astrbot_plugin_po
 
 ### 事件记录与恢复告知
 
-- 响应侧以 `priority=-10` 优先于 polite_silence 取得未清理文本，解析 `<ignore>` 标签（自闭合与双标签、属性大小写不敏感，取 id 与 duration）；确认 polite_silence 已注册才记录，避免幽灵事件。
+- 响应侧在 polite_silence 清理前取得未清理文本，解析 `<ignore>` 标签（自闭合与双标签、属性大小写不敏感，取 id 与 duration）；确认 polite_silence 已注册才记录，避免幽灵事件。
+- 事件时长按 polite_silence 实际配置的 `min_ignore_minutes / max_ignore_minutes` 夹取后再落库，与执行端口径一致；缺省与非法配置回退 `10..1440`。
 - 事件写入 `last_silence_event`（target_id、duration_minutes、source_round、created_at）并累加 `silence_count`，随 `companion_state` 持久化。
 - 能再次收到该用户消息即视为拒答已结束（含管理员手动解封）；此时一次性告知主模型“上一轮沉默了 X 分钟”，随后清除事件，不重复注入。
 - 拒答次数当前只用于记录、状态展示与诊断，不直接参与关系数值计算。

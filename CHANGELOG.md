@@ -2,6 +2,24 @@
 
 本项目遵循语义化版本风格；alpha 阶段允许调整内部数据结构和提示协议，但 V2 始终不迁移或修改 V1 与 LivingMemory 的数据。
 
+## Unreleased - 2026-08-06
+
+### 桥接语义调整
+
+- polite_silence 桥接不再全局关闭其 `trigger_percent`，配置文件保持零改动：群聊与关闭陪伴的私聊继续由 polite_silence 按原概率注入，只有打开陪伴的私聊由 Companion 接管。
+- 接管方式改为“后摘除”：在 polite_silence 注入之后，把追加到私聊 system_prompt 尾部的提示摘除（尾部精确匹配，失败时回退全串包含匹配，兜住其他插件在中间追加内容的情况），再由状态机决定是否注入 Companion 的拒答提示。
+- 摘除逻辑对缺少 `get_sender_name` 的事件做了防御；关闭桥接或卸载插件时不再需要还原任何配置。
+- 向上游提交“私聊与群聊独立触发概率”的 [feature request](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence/issues/1) 与[实现草案](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence/pull/2)；上游合入后将切换为直接关闭私聊概率并移除摘除逻辑。
+
+### 拒答事件口径
+
+- 拒答事件记录的时长按 polite_silence 实际配置的 `min_ignore_minutes / max_ignore_minutes` 夹取后再落库，与执行端口径一致；“上一轮沉默了 X 分钟”的恢复告知不再与实际沉默时长对不上。
+- 缺省与非法配置回退 `10..1440`，与 polite_silence 默认一致。
+
+### 验证
+
+- 全量 152 项测试通过；本地确定性 E2E 覆盖“摘除他注入 → 状态机注入 → 事件记录 → 恢复告知”全链路与修复期不注入。
+
 ## 2.1.0 - 2026-08-06
 
 ### polite_silence 桥接
