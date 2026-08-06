@@ -469,6 +469,48 @@ def test_disabled_umo_skips_capture_injection_and_all_llm_analysis(tmp_path, mon
     assert state.last_compiled_context == ""
 
 
+def test_silence_event_recorded_with_clamped_duration(tmp_path, monkeypatch):
+    monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
+    plugin = main_impl.CompanionLiteV2Plugin(
+        FakeContext(),
+        {
+            "Basic_Settings": {"operation_mode": "active"},
+            "Silence_Bridge_Settings": {"bridge_polite_silence": True},
+        },
+    )
+    user_id = "test:FriendMessage:private"
+    instance = SimpleNamespace(
+        config={
+            "trigger_percent": 30,
+            "min_ignore_minutes": 15,
+            "max_ignore_minutes": 120,
+        }
+    )
+    event = FakeEvent("silence-message")
+    response = SimpleNamespace(
+        role="assistant",
+        completion_text='我拒绝。<ignore id="user" duration="5" />',
+        tools_call_name=None,
+        tools_call_extra_content=None,
+    )
+
+    async def run():
+        await plugin.initialize()
+        plugin.silence_bridge.resolve_polite_silence = lambda: instance
+        plugin.reflection_service.enqueue = lambda *_args, **_kwargs: False
+        key = plugin._interaction_key(event, user_id)
+        assert plugin.storage.claim_interaction(key, user_id, "你好")
+        await plugin.capture_llm_response(event, response)
+        state = await plugin._load_state(user_id)
+        await plugin.terminate()
+        return state
+
+    state = asyncio.run(run())
+    assert state.silence_count == 1
+    assert state.last_silence_event["target_id"] == "user"
+    assert state.last_silence_event["duration_minutes"] == 15
+
+
 def test_per_umo_toggle_requires_existing_state_and_survives_reset(tmp_path, monkeypatch):
     monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
     plugin = main_impl.CompanionLiteV2Plugin(FakeContext(), {})

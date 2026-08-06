@@ -434,6 +434,9 @@ class CompanionLiteV2Plugin(Star):
             if self.plugin_config.bridge_polite_silence:
                 event_info = self.silence_bridge.extract_ignore_event(raw_assistant_text)
                 if event_info is not None and self.silence_bridge.resolve_polite_silence() is not None:
+                    event_info["duration_minutes"] = self.silence_bridge.clamp_duration(
+                        event_info["duration_minutes"]
+                    )
                     event_info["source_round"] = next_round
                     event_info["created_at"] = time.time()
                     state.last_silence_event = event_info

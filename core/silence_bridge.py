@@ -163,6 +163,25 @@ class SilenceBridgeController:
             "duration_minutes": max(1, int(duration)),
         }
 
+    def clamp_duration(self, minutes: int) -> int:
+        """按 polite_silence 实际配置夹取拒答时长，与解析端执行口径一致；缺省回退 10..1440。"""
+        min_minutes, max_minutes = 10, 1440
+        instance = self.resolve_polite_silence()
+        config_obj = getattr(instance, "config", None)
+        if config_obj is not None and hasattr(config_obj, "get"):
+            try:
+                min_minutes = int(config_obj.get("min_ignore_minutes", 10) or 10)
+                max_minutes = int(config_obj.get("max_ignore_minutes", 1440) or 1440)
+            except (TypeError, ValueError):
+                pass
+        if max_minutes < min_minutes:
+            max_minutes = min_minutes
+        try:
+            value = int(minutes)
+        except (TypeError, ValueError):
+            value = min_minutes
+        return max(min_minutes, min(value, max_minutes))
+
     def payload(self) -> dict[str, Any]:
         """桥接运行状态：配置开关、active 模式、是否已接管、polite_silence 是否注册。"""
         return {

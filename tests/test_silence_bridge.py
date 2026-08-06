@@ -69,6 +69,42 @@ def test_extract_ignore_event_missing_fields():
     assert SilenceBridgeController.extract_ignore_event("正常回复") is None
 
 
+def test_clamp_duration_uses_polite_silence_limits():
+    context, instance = _silence_context()
+    instance.config["min_ignore_minutes"] = 15
+    instance.config["max_ignore_minutes"] = 120
+    plugin = _plugin(context)
+    assert plugin.silence_bridge.clamp_duration(5) == 15
+    assert plugin.silence_bridge.clamp_duration(30) == 30
+    assert plugin.silence_bridge.clamp_duration(200) == 120
+
+
+def test_clamp_duration_defaults_without_limits():
+    context, _ = _silence_context()
+    plugin = _plugin(context)
+    assert plugin.silence_bridge.clamp_duration(5) == 10
+    assert plugin.silence_bridge.clamp_duration(2000) == 1440
+    assert plugin.silence_bridge.clamp_duration(30) == 30
+
+
+def test_clamp_duration_missing_plugin_uses_defaults():
+    context = SimpleNamespace(
+        star_context=None,
+        get_registered_star=lambda name: None,
+    )
+    plugin = _plugin(context)
+    assert plugin.silence_bridge.clamp_duration(1) == 10
+    assert plugin.silence_bridge.clamp_duration(99999) == 1440
+
+
+def test_clamp_duration_invalid_config_falls_back():
+    context, instance = _silence_context()
+    instance.config["min_ignore_minutes"] = "bad"
+    instance.config["max_ignore_minutes"] = "worse"
+    plugin = _plugin(context)
+    assert plugin.silence_bridge.clamp_duration(3) == 10
+
+
 def test_should_inject_silence_normal_no_issue():
     assert SilenceBridgeController.should_inject_silence(_state()) is False
 
