@@ -1,8 +1,8 @@
 # CompanionLiteV2 Project State
 
 最后更新：2026-08-06
-当前版本：`2.1.0`
-当前阶段：2.1.0 桥接、WebUI 精简与维护拆分已发布
+当前版本：`2.1.1`
+当前阶段：2.1.1 桥接语义调整与拒答事件口径修复待发布
 运行模式：`active`
 
 ## 当前结论
@@ -71,7 +71,7 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 | `max_buffer_rounds` | `24` |
 | `max_context_chars` | `340` |
 | 反思模型 | 当前配置的模型提供商 |
-| 运行版本 | `2.1.0` |
+| 运行版本 | `2.1.1` |
 | 主人格注入 | 已启用 |
 | 礼貌性沉默桥接 | 已启用并接管（`trigger_percent = 0`） |
 | 正式绑定记录 | `0` |

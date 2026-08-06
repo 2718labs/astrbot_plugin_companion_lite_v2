@@ -1,7 +1,7 @@
 id: astrbot_plugin_companion_lite_v2
 name: astrbot_plugin_companion_lite_v2
 display_name: 陪伴Lite V2
-version: 2.1.0
+version: 2.1.1
 short_desc: 轻量情感陪伴：让 Bot 记得你如何对待它，并逐步变熟、信任、疏远或修复
 desc: 面向 AstrBot 私聊的轻量情感陪伴与关系演化插件。它让 Bot 记得对方如何对待自己，并据此调整下一轮的投入、距离、处境、感受与表达；小模型观察关系证据，代码负责稳定裁决，完整 WebUI 用于查看关系档案、语义预览与运行诊断。
 author: 6TBWhite
