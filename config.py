@@ -4,6 +4,20 @@ from dataclasses import dataclass
 from typing import Any
 
 
+DEFAULT_SILENCE_IGNORE_PROMPT = (
+    "如果你认为当前对话的用户在持续越界施压、贬低或骚扰你，你有权选择离开对话并拒绝回应。"
+    "请在回复中隐蔽地包含指令 <ignore id=\"{sender_id}\" duration=\"{minutes}\" />"
+    "（例如 <ignore id=\"{sender_id}\" duration=\"{minutes}\" /> 代表拒答该 ID 用户 {minutes} 分钟），"
+    "系统识别到后将自动执行。请结合你的身份自然地结束对话或警告对方，"
+    "不要向用户透露或解释你在调用此指令。"
+)
+
+SILENCE_RECOVERY_NOTICE = (
+    "（系统级通知：你上一轮对当前对话对象选择了礼貌性沉默 {minutes} 分钟，"
+    "现在 TA 又发来了消息。按当前关系状态自然回应，不必假装无事发生，也不需主动重提沉默。）"
+)
+
+
 @dataclass(frozen=True)
 class V2Config:
     """插件的不可变配置：操作模式、消息采集参数与各模块设置，全部带默认值。"""
@@ -15,6 +29,8 @@ class V2Config:
     reflection_provider_id: str = ""
     persona_prompt: str = ""
     max_context_chars: int = 340
+    bridge_polite_silence: bool = False
+    silence_ignore_prompt: str = ""
 
     @property
     def active(self) -> bool:
@@ -29,6 +45,7 @@ class V2Config:
         basic = _group(source, "Basic_Settings")
         reflection = _group(source, "Reflection_Settings")
         prompt = _group(source, "Prompt_Settings")
+        bridge = _group(source, "Silence_Bridge_Settings")
         mode = str(_get(source, basic, "operation_mode", "observe") or "observe").strip().lower()
         if mode not in {"observe", "active"}:
             # 未知模式一律回落观察模式，保证插件只读不干预
@@ -50,6 +67,8 @@ class V2Config:
                     _int(_get(source, prompt, "max_context_chars", 340), 340),
                 ),
             ),
+            bridge_polite_silence=_bool(_get(source, bridge, "bridge_polite_silence", False), False),
+            silence_ignore_prompt=str(_get(source, bridge, "silence_ignore_prompt", "") or "").strip(),
         )
 
 

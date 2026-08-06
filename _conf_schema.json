@@ -69,5 +69,24 @@
         "default": 340
       }
     }
+  },
+  "Silence_Bridge_Settings": {
+    "description": "拒答桥接",
+    "hint": "开启后接管 polite_silence 的概率注入：把它的 trigger_percent 置 0，由本插件的状态机决定何时向主模型提示礼貌性沉默。",
+    "type": "object",
+    "items": {
+      "bridge_polite_silence": {
+        "description": "接管 polite_silence 拒答注入",
+        "hint": "需同时安装并启用 astrbot_plugin_polite_silence；未安装时自动降级为不注入。",
+        "type": "bool",
+        "default": false
+      },
+      "silence_ignore_prompt": {
+        "description": "自定义拒答提示模板",
+        "hint": "留空使用内置模板。可用占位符 {sender_id} 与 {minutes}。",
+        "type": "text",
+        "default": ""
+      }
+    }
   }
 }

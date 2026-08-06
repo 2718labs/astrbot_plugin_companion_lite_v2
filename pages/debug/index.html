@@ -104,6 +104,21 @@
       content: ""; width: 7px; height: 7px; border-radius: 50%;
       background: #2d9b75; box-shadow: 0 0 0 4px rgba(45, 155, 117, .12);
     }
+    .live.paused::before {
+      background: #8993a1; box-shadow: 0 0 0 4px rgba(137, 147, 161, .14);
+    }
+    .bridge-badge {
+      display: inline-flex; align-items: center; padding: 7px 10px;
+      border: 1px solid var(--line); border-radius: 999px;
+      color: var(--muted); background: var(--panel); font-size: 12px; white-space: nowrap;
+    }
+    .bridge-badge.tone-ok {
+      color: #2d9b75; border-color: rgba(45, 155, 117, .35); background: rgba(45, 155, 117, .08);
+    }
+    .bridge-badge.tone-warn {
+      color: #b26a13; border-color: rgba(178, 106, 19, .35); background: rgba(178, 106, 19, .08);
+    }
+    .bridge-badge[hidden] { display: none; }
     input, button {
       min-height: 38px; border: 1px solid var(--line); border-radius: 10px;
       color: var(--text); background: var(--panel); font: inherit;
@@ -303,7 +318,7 @@
       --portrait-tone: var(--danger); --portrait-soft: var(--danger-soft);
     }
     .editorial-signals {
-      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+      display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 9px; margin-bottom: 14px;
     }
     .editorial-signal {
@@ -396,6 +411,17 @@
     }
     .cycle-steps {
       display: flex; justify-content: space-between; color: var(--muted); font-size: 10px;
+    }
+    .cycle-summary {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px; margin-top: 10px;
+    }
+    .cycle-summary span {
+      padding: 8px 10px; border-radius: 10px;
+      color: var(--muted); background: var(--panel-solid); font-size: 11px;
+    }
+    .cycle-summary strong {
+      display: block; margin-top: 2px; color: var(--text); font-size: 13px;
     }
     .rhythm-stats {
       display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
@@ -667,6 +693,18 @@
       width: 100%;
     }
     .management-toggle-cell small { color: var(--muted); white-space: nowrap; }
+    .bridge-panel { padding: 16px; }
+    .bridge-control {
+      display: grid; gap: 8px; margin-top: 12px; padding: 12px 14px;
+      border: 1px solid var(--line); border-radius: 12px; background: var(--panel-solid);
+    }
+    .bridge-control-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    }
+    .bridge-copy { min-width: 0; }
+    .bridge-copy strong { font-size: 13px; white-space: nowrap; }
+    .bridge-control-row .management-toggle-cell { width: auto; flex: 0 0 auto; }
+    .bridge-detail { font-size: 12px; overflow-wrap: anywhere; }
     .management-empty { padding: 34px 18px; text-align: center; }
     @media (max-width: 760px) {
       header { align-items: stretch; flex-direction: column; }
@@ -745,7 +783,8 @@
         <h1 id="page-title">用户关系档案册</h1>
       </div>
       <div class="toolbar">
-        <span id="live-status" class="live">每 5 秒自动同步 · 选中文字或编辑时暂停</span>
+        <span id="live-status" class="live"><span id="live-status-text">实时</span></span>
+        <span id="bridge-badge" class="bridge-badge" hidden></span>
         <button id="refresh" type="button">刷新</button>
       </div>
     </header>
@@ -796,6 +835,29 @@
           <span>启用比例</span>
           <strong id="management-ratio">0%</strong>
           <small>按当前已知会话计算</small>
+        </div>
+      </section>
+      <section class="management-panel bridge-panel">
+        <div class="management-panel-head">
+          <div>
+            <div class="section-kicker">Plugin bridge</div>
+            <h2>联动插件</h2>
+            <p class="muted">开启后由 Companion 状态机决定礼貌性沉默的注入时机，polite_silence 只负责执行拒答。</p>
+          </div>
+          <span id="bridge-status" class="management-result"></span>
+        </div>
+        <div class="bridge-control">
+          <div class="bridge-control-row">
+            <div class="bridge-copy">
+              <strong>礼貌性沉默桥接</strong>
+            </div>
+            <span class="management-toggle-cell">
+              <small id="bridge-save-hint">即时保存</small>
+              <button id="silence-bridge-toggle" class="switch compact" type="button" role="switch"
+                aria-checked="false" aria-busy="false"></button>
+            </span>
+          </div>
+          <div id="bridge-detail" class="bridge-detail muted">读取中…</div>
         </div>
       </section>
       <section class="management-panel">
@@ -868,6 +930,8 @@
     let refreshGeneration = 0;
     let autoSyncing = false;
     let knownSessions = [];
+    let lastHealth = null;
+    let pendingBridgeToggle = false;
     let lastDashboardFingerprint = "";
     let lastSessionsFingerprint = "";
     let activeView = "profile";
@@ -1110,9 +1174,80 @@
       return active.matches?.("input, textarea, select, [contenteditable='true']");
     }
     function updateLiveStatus() {
-      liveStatus.textContent = hasTextSelection() || isEditing()
-        ? "自动同步已暂停 · 复制或编辑完成后继续"
-        : "每 5 秒自动同步 · 选中文字或编辑时暂停";
+      const paused = hasTextSelection() || isEditing();
+      liveStatus.classList.toggle("paused", paused);
+      $("#live-status-text").textContent = paused ? "已暂停" : "实时";
+    }
+    function renderBridgeBadge(health) {
+      // 顶部状态条徽章：已接管 / 未启用 / observe 不接管 / 未安装
+      const bridgeState = health?.silence_bridge;
+      const badge = $("#bridge-badge");
+      if (!badge || !bridgeState) return;
+      let label = "";
+      let tone = "muted";
+      let title = "";
+      if (bridgeState.managed) {
+        label = "拒答桥接已接管";
+        tone = "ok";
+        title = "companion 状态机接管 polite_silence 的拒答注入时机";
+      } else if (bridgeState.enabled && bridgeState.active && bridgeState.plugin_installed) {
+        label = "拒答桥接待接管";
+        tone = "warn";
+        title = "已启用，等待下一条私聊消息后接管";
+      } else if (!bridgeState.enabled) {
+        label = "拒答桥接未启用";
+        title = "Silence_Bridge_Settings.bridge_polite_silence 当前关闭";
+      } else if (!bridgeState.active) {
+        label = "observe 不接管";
+        title = "仅 active 模式会接管 polite_silence";
+      } else if (!bridgeState.plugin_installed) {
+        label = "未安装 polite_silence";
+        tone = "warn";
+        title = "开关已开，但未检测到 astrbot_plugin_polite_silence";
+      }
+      badge.textContent = label;
+      badge.className = `bridge-badge tone-${tone}`;
+      badge.title = title;
+      badge.hidden = !label;
+    }
+    function renderBridgeControl() {
+      // 启停管理页的联动插件开关与状态说明
+      const bridgeState = lastHealth?.silence_bridge;
+      const toggle = $("#silence-bridge-toggle");
+      if (!toggle || !bridgeState) return;
+      toggle.setAttribute("aria-checked", bridgeState.enabled ? "true" : "false");
+      toggle.disabled = Boolean(pendingBridgeToggle);
+      toggle.setAttribute("aria-busy", pendingBridgeToggle ? "true" : "false");
+      $("#bridge-save-hint").textContent = pendingBridgeToggle ? "保存中" : "即时保存";
+      let detail = "";
+      if (bridgeState.managed) detail = "已接管：注入时机由状态机决定";
+      else if (bridgeState.enabled && bridgeState.active && bridgeState.plugin_installed) {
+        detail = "已启用：待消息触发接管";
+      }
+      else if (!bridgeState.enabled) detail = "未启用：保持 polite_silence 原样";
+      else if (!bridgeState.active) detail = "observe 模式下不接管";
+      else if (!bridgeState.plugin_installed) detail = "未安装 polite_silence";
+      $("#bridge-detail").textContent = detail;
+    }
+    async function toggleSilenceBridge(button) {
+      if (pendingBridgeToggle || button.disabled) return;
+      const enabled = button.getAttribute("aria-checked") !== "true";
+      pendingBridgeToggle = true;
+      showError();
+      renderBridgeControl();
+      try {
+        const result = await apiPost(path("silence_bridge"), { enabled });
+        if (result?.ok !== true || result?.enabled !== enabled) {
+          throw new Error(result?.error || "桥接状态没有生效");
+        }
+        if (lastHealth) lastHealth.silence_bridge = result.silence_bridge;
+        renderBridgeBadge(lastHealth);
+      } catch (error) {
+        showError(error.message || String(error));
+      } finally {
+        pendingBridgeToggle = false;
+        renderBridgeControl();
+      }
     }
     function renderProfiles(query = "") {
       const needle = query.trim().toLocaleLowerCase();
@@ -1181,6 +1316,7 @@
       $("#management-enabled").textContent = String(enabledCount);
       $("#management-disabled").textContent = String(disabledCount);
       $("#management-ratio").textContent = `${ratio}%`;
+      renderBridgeControl();
 
       const needle = managementSearch.value.trim().toLocaleLowerCase();
       const visible = knownSessions.filter(item => {
@@ -1389,6 +1525,7 @@
       }, 1600);
     }
     function render(state, messageData, health, { preserveScroll = true } = {}) {
+      renderBridgeBadge(health);
       if (renderedProfileUserId) captureProfileUiState(renderedProfileUserId);
       const scrollState = preserveScroll ? captureScrollState(dashboard) : null;
       const profileUserId = String(state.user_id || input.value || "");
@@ -1406,6 +1543,13 @@
       const cycleProgress = roundSequence % 6 / 6 * 100;
       const semanticTab = uiState.semanticTab === "previous" ? "previous" : "next";
       const messageItems = Array.isArray(messageData.messages) ? messageData.messages : [];
+      // 周期概况：起点轮、已推进轮数与周期内已记录消息数
+      const cycleStart = Math.floor(roundSequence / 6) * 6;
+      const cycleProgressRounds = Math.min(6, Math.max(0, roundSequence - cycleStart));
+      const cycleMessageCount = messageItems.filter(item => {
+        const itemRound = Number(item.completed_round || 0);
+        return itemRound > cycleStart && itemRound <= cycleStart + 6;
+      }).length;
       const nextPrompt = state.next_compiled_preview || (state.enabled ? "尚未编译。" : "已关闭。");
       const previousPrompt = state.last_compiled_context || "尚未编译。";
       const diagnosticsAnomaly = Boolean(
@@ -1425,26 +1569,18 @@
       const reflectBlocked = !state.enabled;
       const currentFeeling = String(state.impression || "").trim();
       const previousFeeling = taggedValue(state.last_compiled_context, "感受");
-      const previewFeeling = taggedValue(state.next_compiled_preview, "感受");
       const analysisRunning = state.last_analysis_status === "running";
       const feelingApplied = Boolean(
         currentFeeling && previousFeeling === currentFeeling
-      );
-      const feelingQueued = Boolean(
-        currentFeeling
-        && previousFeeling !== currentFeeling
-        && previewFeeling === currentFeeling
       );
       const feelingStatus = !currentFeeling
         ? "当前无明确感受"
         : feelingApplied
           ? "已用于上一轮"
-          : feelingQueued
-            ? "已生成，待下一轮"
-            : "等待编译确认";
+          : "等待编译确认";
       const feelingTone = feelingApplied
         ? "tone-success"
-        : feelingQueued || analysisRunning
+        : analysisRunning
           ? "tone-warning"
           : "";
       const rebuildTitle = !state.enabled
@@ -1489,37 +1625,6 @@
             </div>
           </div>
         </section>
-        <section class="panel wide">
-          <div class="section-head">
-            <div>
-              <div class="section-kicker">Injection timeline</div>
-              <h2>感受注入追踪</h2>
-            </div>
-            <span class="pill">${esc(feelingStatus)}</span>
-          </div>
-          <div class="trace-grid">
-            <div class="trace-step">
-              <span class="status-label">当前档案</span>
-              <strong>大总结生成的感受</strong>
-              <p>${esc(currentFeeling || "尚未形成明确感受")}</p>
-            </div>
-            <div class="trace-step">
-              <span class="status-label">上一轮实际</span>
-              <strong>回复前编译快照</strong>
-              <p>${esc(previousFeeling || "快照中未找到 <感受>")}</p>
-            </div>
-            <div class="trace-step">
-              <span class="status-label">下一轮预览</span>
-              <strong>按当前档案编译</strong>
-              <p>${esc(previewFeeling || "预览中未找到 <感受>")}</p>
-            </div>
-          </div>
-          <div class="trace-note">${esc(analysisRunning
-            ? "后台大总结尚未落库；此时到来的新请求可能先使用旧感受。"
-            : feelingQueued
-              ? "新感受已经落库并进入下一轮预览，但上一轮实际快照仍是旧状态。"
-              : "这里同时展示生成态、上一轮实际态和下一轮预览，避免把异步时序误认成裁剪。")}</div>
-        </section>
         <section class="panel wide editorial-card ${portraitTone}">
           <div class="section-head">
             <div>
@@ -1546,6 +1651,12 @@
               <strong>${esc(issue
                 ? `${named(issueNames, issue.kind)} · ${named(phaseNames, issue.phase)}`
                 : "无待处理问题")}</strong>
+            </div>
+            <div class="editorial-signal">
+              <span>拒答</span>
+              <strong>${state.silence_count
+                ? `${state.silence_count} 次${state.last_silence_event ? ` · 最近 ${state.last_silence_event.duration_minutes} 分钟` : ""}`
+                : "无记录"}</strong>
             </div>
           </div>
           <div class="portrait-layout">
@@ -1603,6 +1714,12 @@
                 <div class="cycle-fill" style="--cycle-progress:${cycleProgress}%"></div>
               </div>
               <div class="cycle-steps"><span>本周期起点</span><span>当前第 ${esc(roundSequence)} 轮</span><span>第 ${esc(nextDeepRound)} 轮</span></div>
+              <div class="cycle-summary">
+                <span>周期起点<strong>第 ${esc(cycleStart + 1)} 轮</strong></span>
+                <span>已推进<strong>${esc(cycleProgressRounds)} / 6</strong></span>
+                <span>周期消息<strong>${esc(cycleMessageCount)} 条</strong></span>
+              </div>
+              <div class="rhythm-meta">${esc(health.operation_mode || "-")} mode · ${esc(health.background_tasks ?? 0)} 个后台任务 · ${esc(state.umo || state.user_id || "-")}</div>
             </div>
             <div class="rhythm-card">
               <div class="rhythm-stats">
@@ -1616,7 +1733,6 @@
                 <div class="rhythm-stat"><span>最近注入</span><strong>${state.last_context_injected ? "已注入" : "未注入"}</strong></div>
               </div>
               <p class="rhythm-note">${esc(state.last_analysis_note || named(analysisStatusNames, state.last_analysis_status))}</p>
-              <div class="rhythm-meta">${esc(health.operation_mode || "-")} mode · ${esc(health.background_tasks ?? 0)} 个后台任务 · ${esc(state.umo || state.user_id || "-")}</div>
             </div>
           </div>
           <div class="action-bar">
@@ -1746,6 +1862,23 @@
                   rebuild_steps: analysisTrace.steps || [],
                 }))}</pre>
               </section>
+              <section class="diagnostic-card wide">
+                <h3>感受时序</h3>
+                ${facts([
+                  ["当前档案感受", currentFeeling || "尚未形成明确感受"],
+                  ["后台大总结", analysisRunning ? "运行中，新请求可能先使用旧感受" : "已落库"],
+                  ["注入状态", feelingStatus],
+                ])}
+              </section>
+              <section class="diagnostic-card wide">
+                <h3>拒答事件</h3>
+                ${facts([
+                  ["累计次数", state.silence_count ?? 0],
+                  ["最近目标", state.last_silence_event?.target_id || "-"],
+                  ["沉默时长", state.last_silence_event ? `${state.last_silence_event.duration_minutes} 分钟` : "-"],
+                  ["触发轮次", state.last_silence_event?.source_round ?? "-"],
+                ])}
+              </section>
             </div>
           </div>
         </details>
@@ -1787,6 +1920,7 @@
           apiGet(path("messages"), { user_id: userId, limit: 40 }),
           apiGet(path("health")),
         ]);
+        lastHealth = health;
         if (generation !== refreshGeneration || input.value.trim() !== userId) return;
         if (silent && (hasTextSelection() || isEditing())) {
           updateLiveStatus();
@@ -1923,6 +2057,11 @@
       const managementToggle = event.target.closest("[data-management-toggle]");
       if (managementToggle) {
         toggleManagementSession(managementToggle);
+        return;
+      }
+      const bridgeToggle = event.target.closest("#silence-bridge-toggle");
+      if (bridgeToggle) {
+        toggleSilenceBridge(bridgeToggle);
         return;
       }
       const openProfile = event.target.closest("[data-open-profile]");

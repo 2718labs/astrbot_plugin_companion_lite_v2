@@ -15,7 +15,9 @@ def test_debug_page_is_self_contained_and_uses_plugin_bridge():
     assert 'id="profile-search"' in text
     assert 'data-user-id="' in text
     assert "window.localStorage" not in text
-    assert "每 5 秒自动同步" in text
+    assert 'id="live-status-text"' in text
+    assert 'id="bridge-badge"' in text
+    assert 'id="silence-bridge-toggle"' in text
     assert "暂无会话。完成一次私聊后即可在此查看关系档案。" in text
     assert "凡人" not in text
     assert "hasTextSelection" in text
@@ -27,11 +29,10 @@ def test_debug_page_is_self_contained_and_uses_plugin_bridge():
     assert "force: true" in text
     assert "window.setInterval(() => syncLive(true), 5000)" in text
     assert "last_analysis_status" in text
-    assert "上一轮实际" in text
-    assert "下一轮预览" in text
-    assert "感受注入追踪" in text
+    assert "感受时序" in text
+    assert "拒答事件" in text
+    assert "联动插件" in text
     assert "function taggedValue" in text
-    assert "已生成，待下一轮" in text
     assert "严重事件预检" in text
     assert "模型观察 → 代码裁决" in text
     assert "分析缓存与用量" in text
