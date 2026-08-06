@@ -5,7 +5,7 @@
   <p>面向 AstrBot 私聊场景的轻量情感陪伴与关系演化插件。关系可以从陌生走向熟稔，也会因单向索取、冒犯或边界施压而冷却，并在可靠修复后逐步回暖。</p>
   <p>
     <a href="https://github.com/AstrBotDevs/AstrBot"><img src="https://img.shields.io/badge/AstrBot-Plugin-5B67F1?style=flat-square" alt="AstrBot Plugin" /></a>
-    <a href="https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2/releases/tag/v2.0.1"><img src="https://img.shields.io/badge/release-v2.0.1-7357D9?style=flat-square" alt="Release v2.0.1" /></a>
+    <a href="https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2/releases/tag/v2.0.2"><img src="https://img.shields.io/badge/release-v2.0.2-7357D9?style=flat-square" alt="Release v2.0.2" /></a>
     <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2F855A?style=flat-square" alt="MIT License" /></a>
   </p>
@@ -26,7 +26,7 @@
 
 插件自带完整 WebUI 管理面板：既能像翻阅人物档案一样查看单个会话的关系侧写、互动节奏、语义投影和消息时间线，也能总览、搜索并独立启停全部已知会话；工程诊断默认收起，需要排障时再展开。
 
-当前稳定版本为 `2.0.1`。新安装默认使用 `observe`，只记录、分析并生成预览；确认行为符合预期后再切换为 `active`，让关系上下文进入主模型请求。
+当前稳定版本为 `2.0.2`。新安装默认使用 `observe`，只记录、分析并生成预览；确认行为符合预期后再切换为 `active`，让关系上下文进入主模型请求。
 
 ## 为什么另做 V2
 
@@ -47,6 +47,7 @@ V1 在多轮重构后已不再适合作为运行基线，因此本项目以独�
 | 可靠修复 | 具体承接、解释和改变能够软化姿态；两次独立行为确认后才清除未解决问题 | 泛泛道歉、低置信判断或一次性示好不会立即洗白 |
 | 正式关系 | 管理员可为人格绑定唯一正式窗口，允许更自然的关心、偏心和熟稔表达 | 正式身份不覆盖当前边界、未解决问题或其他窗口的普通投入 |
 | 分层观察 | 每两个完整来回轻分析一次，每六轮深分析一次，让变化既及时又不过度抖动 | 普通消息在主回复前不额外调用分析模型；模型只提交证据 |
+| 可选拒答联动 | 安装 polite_silence 后，可由 Companion 状态机决定何时礼貌性沉默，polite_silence 只负责执行拒答 | 默认关闭；未安装或未开启时零影响 |
 | 五维语义 | 将关系编译成 `投入 / 关系 / 处境 / 感受 / 表达`，主人格无需理解分数和内部标签 | 只改变本轮关系上下文，不接管主人格或保存用户事实 |
 | 完整 WebUI | 查看关系侧写、六轮节奏、语义预览、消息时间线和工程诊断，并总览管理全部会话 | 新安装默认仅观察；确认预览符合预期后再开启实际注入 |
 
@@ -106,6 +107,18 @@ data/plugin_data/astrbot_plugin_companion_lite_v2/
 | `reflection_provider_id` | `""`      | 留空时使用当前默认模型提供商                        |
 | `persona_prompt`         | `""`      | 深分析使用的稳定人格参考                          |
 | `max_context_chars`      | `340`     | 动态关系上下文预算，可配置范围 `260..340`            |
+| `bridge_polite_silence`  | `false`   | 接管 polite_silence 的拒答注入，由状态机决定注入时机    |
+| `silence_ignore_prompt`  | `""`      | 自定义拒答提示模板，占位符 `{sender_id}`、`{minutes}`；留空用内置 |
+
+### 礼貌性沉默桥接（可选）
+
+如需让 Bot 在边界持续被越过时主动选择“礼貌性沉默”，可额外安装 [astrbot_plugin_polite_silence](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence)，然后在本插件配置中开启 `bridge_polite_silence`：
+
+- 仅在 `active` 模式下接管：polite_silence 的 `trigger_percent` 会被置 0，拒答注入时机改由 Companion 状态机决定（`disengaged` 必注入；`guarded` 且存在边界、贬低或胁迫问题，或 `hold_boundary` 提醒生效时注入；修复期不注入）。
+- 模型在回复中自主输出 `<ignore id="..." duration="..." />`，polite_silence 负责解析并执行沉默；Companion 同时记录拒答事件（累计次数与最近一次详情），对方在沉默结束后回来时一次性告知主模型沉默时长。
+- 拒答指令与恢复告知追加在 system_prompt 尾部，前缀（人格与固定协议）保持稳定，不影响无注入轮次的 prompt 缓存。
+- 未安装 polite_silence、未开启开关或 `observe` 模式下，该链路不生效，插件其余行为不受影响。
+- 也可以在调试页“启停管理 → 联动插件”中直接拨动开关，与 AstrBot 配置面板同源同步。
 
 ## 管理员命令
 
@@ -113,7 +126,7 @@ data/plugin_data/astrbot_plugin_companion_lite_v2/
 
 | 命令                  | 功能                           |
 | ------------------- | ---------------------------- |
-| `/clv2_status`      | 查看当前 UMO 的关系状态和最近编译文本        |
+| `/clv2_status`      | 查看当前 UMO 的关系状态、拒答统计和最近编译文本  |
 | `/clv2_reset`       | 清空当前 UMO 的关系状态、消息、待处理交互和正式绑定 |
 | `/clv2_reflect`     | 尝试运行当前轮次的深分析                 |
 | `/companion_bond`   | 将当前窗口设为当前人格唯一正式关系            |
@@ -129,8 +142,8 @@ http://<AstrBot 地址>/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 
 页面提供两个视图：
 
-- **关系档案**：查看三维状态、感受追踪、关系侧写、六轮互动节奏、五标签语义投影、消息时间线和工程诊断。
-- **启停管理**：总览最多 1000 个已知 UMO，按状态搜索、筛选、排序并逐会话启停。
+- **关系档案**：查看三维状态、感受追踪、关系侧写（含拒答信号）、六轮互动节奏、五标签语义投影、消息时间线和工程诊断（含拒答事件详情）。
+- **启停管理**：总览最多 1000 个已知 UMO，按状态搜索、筛选、排序并逐会话启停；顶部“联动插件”区块提供 polite_silence 桥接开关。
 
 关系档案不会重复提供启停开关。页面每五秒静默同步；同步会保护文字选择、输入焦点、滚动位置、语义页签和折叠状态。
 
@@ -138,11 +151,17 @@ http://<AstrBot 地址>/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 
 ```text
 astrbot_plugin_companion_lite_v2/
-├── main.py                 AstrBot 事件钩子、命令、调度与 Web 路由
+├── main.py                 AstrBot 事件钩子与入口，装配核心服务
 ├── config.py               配置读取与边界归一化
 ├── core/
 │   ├── models.py           关系状态、证据类型与代码裁决
-│   └── storage.py          SQLite 持久化与 UMO 隔离
+│   ├── storage.py          SQLite 持久化与 UMO 隔离
+│   ├── persona.py          人格解析与正式关系判定
+│   ├── reflection_service.py  反思调度与执行
+│   ├── silence_bridge.py   polite_silence 桥接
+│   ├── webui.py            调试页 Web API 与档案管理
+│   ├── commands.py         私聊管理命令实现
+│   └── web.py              Web 请求/响应适配
 ├── llm/
 │   ├── reflection.py       严重、轻量与深度关系分析
 │   └── context_builder.py  五标签语义编译

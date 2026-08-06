@@ -2,7 +2,39 @@
 
 本项目遵循语义化版本风格；alpha 阶段允许调整内部数据结构和提示协议，但 V2 始终不迁移或修改 V1 与 LivingMemory 的数据。
 
-## 2.0.2 - 2026-08-01
+## Unreleased
+
+### polite_silence 桥接
+
+- 新增 `Silence_Bridge_Settings` 配置组：`bridge_polite_silence` 开关（默认关闭）与 `silence_ignore_prompt` 自定义提示模板（占位符 `{sender_id}`、`{minutes}`）。
+- active 模式开启后接管 polite_silence 的概率注入：记录其 `trigger_percent` 原值并置 0，关闭开关或插件卸载时还原；接管只做一次，尊重用户在面板的手动修改。
+- 由 Companion 状态机决定拒答注入时机：`disengaged` 必注入；`guarded` 且存在 `boundary_violation / degradation / coercion` 问题（`noticed / expressed`）或 `hold_boundary` 提醒时注入；`repairing` 不注入。
+- 响应侧解析 `<ignore>` 拒答标签并记录事件（最近一次 + 累计次数，随关系状态落库）；拒答结束后对方回来时，一次性告知主模型沉默时长并清除事件。
+- 拒答指令与恢复告知追加在 system_prompt 尾部：前缀（人格与固定协议）保持稳定，无注入轮次的 prompt 缓存不受影响；sender_id 统一做引号清洗，避免破坏 `<ignore>` 标签属性。
+- 未安装 polite_silence、未开启开关或 `observe` 模式时整条链 no-op，不影响既有行为。
+
+### WebUI 与状态展示
+
+- 顶部状态条改为低调的“实时 / 已暂停”指示，并新增桥接状态徽章（已接管 / 待接管 / 未启用 / observe 不接管 / 未安装）。
+- 启停管理新增“联动插件”区块，拨动开关与 AstrBot 配置面板同源同步（新增 `POST /page/silence_bridge`）。
+- 移除“感受注入追踪”卡片，异步时序提示移入工程诊断；关系侧写新增拒答信号，诊断区新增感受时序与拒答事件详情。
+- 六轮大总结周期卡补充周期起点、已推进轮数与周期消息数，运行元信息下沉至周期卡。
+- `/clv2_status` 增加拒答统计行。
+
+### 维护
+
+- main.py 按职责拆分为 `core/persona.py`、`core/silence_bridge.py`、`core/reflection_service.py`、`core/webui.py` 与 `core/commands.py`，入口只保留事件处理与组装，行为不变。
+- `reflection_service.perform_locked` 拆分为准备、标记运行、应用结果三个阶段，职责与锁范围不变。
+- 调试页 Web API 增加统一异常兜底：handler 异常收敛为 JSON 错误响应，不再裸 500。
+- 全量 141 项测试通过。
+
+## 2.0.2 - 2026-08-06
+
+### 深分析印象约束与采纳门槛
+
+- 深分析提示升级为 `deep-v7`：`impression` 只写当前对对方的第一人称感受，禁止复述或转写谁做了什么、谁关心了谁等事件，主观态度与关系事实不再互相串位。
+- 低置信度深分析不再采纳模型的 `revise` / `clear` 印象操作：保留既有感受，缺失时由已裁决状态编译的确定性兜底接管；`medium` / `high` 行为不变。
+- 新增低置信度印象门槛与提示词约束的单元测试，全套 109 项测试通过。
 
 ### 调度与错误处理修复
 
