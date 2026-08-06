@@ -110,15 +110,15 @@ data/plugin_data/astrbot_plugin_companion_lite_v2/
 | `bridge_polite_silence`  | `false`   | 接管 polite_silence 的拒答注入，由状态机决定注入时机    |
 | `silence_ignore_prompt`  | `""`      | 自定义拒答提示模板，占位符 `{sender_id}`、`{minutes}`；留空用内置 |
 
-### 礼貌性沉默桥接（可选）
+### 第三方插件桥接
 
-如需让 Bot 在边界持续被越过时主动选择“礼貌性沉默”，可额外安装 [astrbot_plugin_polite_silence](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence)，然后在本插件配置中开启 `bridge_polite_silence`：
+| 插件 | 接入内容 | 启用与边界 |
+| --- | --- | --- |
+| [astrbot_plugin_polite_silence](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence) | 接管其概率注入，由 Companion 状态机决定何时提示主模型输出 `<ignore>` 拒答；响应侧解析标签并记录拒答事件（累计次数 + 最近一次详情） | `bridge_polite_silence` 默认关闭；仅在 `active` 模式接管，未安装或 observe 模式整条链 no-op；接管只做一次并尊重手动改回的 `trigger_percent`，卸载时还原 |
 
-- 仅在 `active` 模式下接管：polite_silence 的 `trigger_percent` 会被置 0，拒答注入时机改由 Companion 状态机决定（`disengaged` 必注入；`guarded` 且存在边界、贬低或胁迫问题，或 `hold_boundary` 提醒生效时注入；修复期不注入）。
-- 模型在回复中自主输出 `<ignore id="..." duration="..." />`，polite_silence 负责解析并执行沉默；Companion 同时记录拒答事件（累计次数与最近一次详情），对方在沉默结束后回来时一次性告知主模型沉默时长。
-- 拒答指令与恢复告知追加在 system_prompt 尾部，前缀（人格与固定协议）保持稳定，不影响无注入轮次的 prompt 缓存。
-- 未安装 polite_silence、未开启开关或 `observe` 模式下，该链路不生效，插件其余行为不受影响。
-- 也可以在调试页“启停管理 → 联动插件”中直接拨动开关，与 AstrBot 配置面板同源同步。
+状态机触发时机：`disengaged` 必注入；`guarded` 且存在边界、贬低或胁迫问题（`noticed / expressed`），或 `hold_boundary` 提醒生效时注入；修复期不注入。模型在回复中自主输出 `<ignore id="..." duration="..." />`，polite_silence 负责解析并执行沉默，Companion 同时记录拒答事件，对方在沉默结束后回来时一次性告知主模型沉默时长。
+
+拒答指令与恢复告知追加在 system_prompt 尾部，前缀（人格与固定协议）保持稳定，不影响无注入轮次的 prompt 缓存。也可以在调试页“启停管理 → 联动插件”中直接拨动开关，与 AstrBot 配置面板同源同步。
 
 ## 管理员命令
 
