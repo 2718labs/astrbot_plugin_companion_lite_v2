@@ -191,7 +191,7 @@ python -m ruff check .
 ## 致谢与友链
 
 - [astrbot_plugin_polite_silence](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence)：礼貌性沉默执行端，桥接目标插件。
-- [astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne)：桥接接管方式的参考实现。
+- [astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne)：实验性的关系演化插件，也是本插件桥接接管方式的参考实现。
 
 <div align="center">
   <a href="https://github.com/AstrBotDevs/AstrBot">AstrBot Plugin</a> ·
