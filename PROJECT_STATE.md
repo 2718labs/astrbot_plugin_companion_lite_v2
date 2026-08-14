@@ -1,13 +1,13 @@
 # CompanionLiteV2 Project State
 
-最后更新：2026-08-06
-当前版本：`2.1.1`
-当前阶段：2.1.1 桥接语义调整与拒答事件口径修复待发布
+最后更新：2026-08-14
+当前版本：`2.1.2`
+当前阶段：2.1.2 桥接正式字段收口，尚未发布
 运行模式：`active`
 
 ## 当前结论
 
-2.1.0 在 2.0.2 之上落地 polite_silence 可选桥接与维护拆分：active 模式下由一个开关接管 polite_silence 的概率注入，由 Companion 状态机决定何时提示主模型输出 `<ignore>` 拒答；插件自身解析拒答标签、维护拒答事件，并在对方拒答结束回来时一次性告知主模型沉默时长。WebUI 同步新增桥接徽章与“联动插件”开关，同时精简顶部同步文案、移除感受注入追踪卡片，并在关系侧写与 `/clv2_status` 补充拒答摘要。main.py 按职责拆分为 `core/` 服务模块，入口只保留事件处理与组装，行为不变。
+polite_silence 上游 1.2.0 已合入私聊独立概率字段。当前桥接在 active 模式下把 `trigger_percent_private` 运行时置为 `0`，群聊的 `trigger_percent` 保持不变；原先按完整提示片段从 system prompt 中摘除注入的过渡逻辑已经移除。Companion 状态机继续决定何时提示主模型输出 `<ignore>`，插件自身解析拒答标签、维护拒答事件，并在对方拒答结束回来时一次性告知主模型沉默时长。
 
 2.0.2 在稳定版运行语义与编辑式管理台之上，收紧轻、深分析之间的关系语义一致性，并约束深分析印象只写主观感受、低置信度不落地。主人格提示使用“稳定 system 协议 + 动态五标签状态”：静态协议要求先决定是否愿意回答，动态状态告诉主人格本轮答多少、站多近、处于什么情况、内心怎么想以及如何表达。Companion 不注入人格侧情绪保护护栏。
 
@@ -71,7 +71,7 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 | `max_buffer_rounds` | `24` |
 | `max_context_chars` | `340` |
 | 反思模型 | 当前配置的模型提供商 |
-| 运行版本 | `2.1.1` |
+| 运行版本 | `2.1.2` |
 | 主人格注入 | 已启用 |
 | 礼貌性沉默桥接 | 已启用并接管（`trigger_percent = 0`） |
 | 正式绑定记录 | `0` |
@@ -80,11 +80,11 @@ http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_companion_lite_v2/debug
 
 重置故障已通过真实 HTTP 路径 API 验证：状态、消息、待处理交互和绑定会一起清空，不在公开文档记录实际 UMO 或会话数据。
 
-## 2.1.0 桥接与维护
+## 2.1.x 桥接与维护
 
 ### 礼貌性沉默桥接
 
-桥接链由一个开关控制（`bridge_polite_silence`，默认关闭）。开启且处于 `active` 时，插件探测 polite_silence 实例并把其 `trigger_percent` 置 0，避免两套概率触发并存；原值被记录，开关关闭或插件卸载时还原。接管只执行一次，用户之后在面板手动修改 `trigger_percent` 会得到尊重。未安装 polite_silence、缺配置字段、`observe` 模式或开关关闭时整条链 no-op。
+桥接链由一个开关控制（`bridge_polite_silence`，默认关闭）。开启且处于 `active` 时，插件探测 polite_silence 1.2.0+ 的 `trigger_percent_private` 并在运行时置 0，避免两套私聊触发并存；群聊使用的 `trigger_percent` 不变。原私聊概率会被记录，开关关闭或插件卸载时还原；若用户在接管期间手动改过私聊概率，退出时保留用户的新值。未安装 polite_silence、缺少正式私聊字段、`observe` 模式或开关关闭时整条链 no-op。
 
 拒答注入时机由 Companion 状态机决定，而不是概率：
 

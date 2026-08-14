@@ -88,6 +88,7 @@ class CompanionLiteV2Plugin(Star):
     async def initialize(self) -> None:
         """标记就绪并补调度插件重载期间错过的深度/轻量分析。"""
         self._initialized = True
+        await self.silence_bridge.sync()
         recovered = 0
         for item in self.storage.list_states():
             if not bool(item.get("enabled", True)):
@@ -121,8 +122,10 @@ class CompanionLiteV2Plugin(Star):
         )
 
     async def terminate(self) -> None:
-        """停止后台任务并关闭 V2 独立数据库连接。"""
+        """停止后台任务、还原私聊概率并关闭 V2 独立数据库连接。"""
         self._initialized = False
+        if self.silence_bridge.managed:
+            await self.silence_bridge.sync(force_restore=True)
         for task in list(self._background_tasks):
             task.cancel()
         self.storage.close()
@@ -338,11 +341,17 @@ class CompanionLiteV2Plugin(Star):
             state.last_precheck_trace = trace
             self._save_state(state)
 
+    @filter.on_llm_request(priority=10)
+    async def prepare_silence_bridge(self, event: AstrMessageEvent, req=None) -> None:
+        """在 polite_silence 读取概率前完成正式私聊字段接管。"""
+        if not self._initialized or req is None or not self._is_private(event):
+            return
+        await self.silence_bridge.sync()
+
     @filter.on_llm_request(priority=-10)
     async def inject_companion_context(self, event: AstrMessageEvent, req=None) -> None:
         if not self._initialized or req is None or not self._is_private(event):
             return
-        await self.silence_bridge.sync()
         text = str(event.get_message_str() or "").strip()
         if self._is_system_command_text(text):
             return
@@ -393,8 +402,7 @@ class CompanionLiteV2Plugin(Star):
                 if not self._append_extra_user_content(req, compiled):
                     req.prompt = (f"{getattr(req, 'prompt', '')}\n\n{compiled}").strip()
             if self.plugin_config.active:
-                self.silence_bridge.detach_polite_silence_prompt(event, req)
-                if self.silence_bridge.should_inject_silence(state):
+                if self.silence_bridge.managed and self.silence_bridge.should_inject_silence(state):
                     self.silence_bridge.append_prompt(event, req, state)
                 if self.silence_bridge.consume_recovery(state, event, req):
                     self._save_state(state)
@@ -432,7 +440,7 @@ class CompanionLiteV2Plugin(Star):
             ):
                 return
             state.round_sequence = next_round
-            if self.plugin_config.bridge_polite_silence:
+            if self.silence_bridge.managed:
                 event_info = self.silence_bridge.extract_ignore_event(raw_assistant_text)
                 if event_info is not None and self.silence_bridge.resolve_polite_silence() is not None:
                     event_info["duration_minutes"] = self.silence_bridge.clamp_duration(

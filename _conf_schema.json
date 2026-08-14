@@ -72,12 +72,12 @@
   },
   "Silence_Bridge_Settings": {
     "description": "拒答桥接",
-    "hint": "开启后接管 polite_silence 的概率注入：把它的 trigger_percent 置 0，由本插件的状态机决定何时向主模型提示礼貌性沉默。",
+    "hint": "开启后通过 polite_silence 1.2.0+ 的 trigger_percent_private 关闭私聊概率注入，由本插件的状态机决定何时向主模型提示礼貌性沉默；群聊概率不变。",
     "type": "object",
     "items": {
       "bridge_polite_silence": {
         "description": "接管 polite_silence 拒答注入",
-        "hint": "需同时安装并启用 astrbot_plugin_polite_silence；未安装时自动降级为不注入。",
+        "hint": "需同时安装并启用 astrbot_plugin_polite_silence 1.2.0+；未安装或缺少私聊独立概率字段时自动降级为不注入。",
         "type": "bool",
         "default": false
       },

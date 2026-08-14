@@ -482,6 +482,7 @@ def test_silence_event_recorded_with_clamped_duration(tmp_path, monkeypatch):
     instance = SimpleNamespace(
         config={
             "trigger_percent": 30,
+            "trigger_percent_private": -1,
             "min_ignore_minutes": 15,
             "max_ignore_minutes": 120,
         }
@@ -497,6 +498,7 @@ def test_silence_event_recorded_with_clamped_duration(tmp_path, monkeypatch):
     async def run():
         await plugin.initialize()
         plugin.silence_bridge.resolve_polite_silence = lambda: instance
+        await plugin.silence_bridge.sync()
         plugin.reflection_service.enqueue = lambda *_args, **_kwargs: False
         key = plugin._interaction_key(event, user_id)
         assert plugin.storage.claim_interaction(key, user_id, "你好")
@@ -513,6 +515,85 @@ def test_silence_event_recorded_with_clamped_duration(tmp_path, monkeypatch):
     assert all(
         "<ignore" not in str(item.get("content") or "") for item in messages
     ), "入库文本不应包含拒答标签"
+
+
+def test_unmanaged_legacy_silence_plugin_does_not_inject(tmp_path, monkeypatch):
+    monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
+    plugin = main_impl.CompanionLiteV2Plugin(
+        FakeContext(),
+        {
+            "Basic_Settings": {"operation_mode": "active"},
+            "Silence_Bridge_Settings": {"bridge_polite_silence": True},
+        },
+    )
+    instance = SimpleNamespace(config={"trigger_percent": 30})
+    event = FakeEvent("legacy-silence")
+    request = SimpleNamespace(
+        prompt="原始请求",
+        system_prompt="原始人格",
+        extra_user_content_parts=None,
+    )
+
+    async def run():
+        await plugin.initialize()
+        plugin.silence_bridge.resolve_polite_silence = lambda: instance
+        state = await plugin._load_state("test:FriendMessage:private")
+        state.posture = "disengaged"
+        plugin._save_state(state)
+        await plugin.prepare_silence_bridge(event, request)
+        await plugin.inject_companion_context(event, request)
+        managed = plugin.silence_bridge.managed
+        await plugin.terminate()
+        return managed
+
+    managed = asyncio.run(run())
+    assert managed is False
+    assert "<ignore" not in request.system_prompt
+    assert instance.config == {"trigger_percent": 30}
+
+
+def test_managed_silence_bridge_injects_and_restores_private_probability(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(main_impl, "get_astrbot_data_path", lambda: str(tmp_path))
+    plugin = main_impl.CompanionLiteV2Plugin(
+        FakeContext(),
+        {
+            "Basic_Settings": {"operation_mode": "active"},
+            "Silence_Bridge_Settings": {"bridge_polite_silence": True},
+        },
+    )
+    instance = SimpleNamespace(
+        config={
+            "trigger_percent": 30,
+            "trigger_percent_private": -1,
+        }
+    )
+    event = FakeEvent("managed-silence")
+    request = SimpleNamespace(
+        prompt="原始请求",
+        system_prompt="原始人格",
+        extra_user_content_parts=None,
+    )
+
+    async def run():
+        await plugin.initialize()
+        plugin.silence_bridge.resolve_polite_silence = lambda: instance
+        state = await plugin._load_state("test:FriendMessage:private")
+        state.posture = "disengaged"
+        plugin._save_state(state)
+        await plugin.prepare_silence_bridge(event, request)
+        managed_probability = instance.config["trigger_percent_private"]
+        await plugin.inject_companion_context(event, request)
+        await plugin.terminate()
+        return managed_probability
+
+    managed_probability = asyncio.run(run())
+    assert managed_probability == 0
+    assert '<ignore id="user" duration="90" />' in request.system_prompt
+    assert instance.config["trigger_percent"] == 30
+    assert instance.config["trigger_percent_private"] == -1
 
 
 def test_per_umo_toggle_requires_existing_state_and_survives_reset(tmp_path, monkeypatch):

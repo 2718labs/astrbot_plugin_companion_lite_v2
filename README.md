@@ -26,7 +26,7 @@
 
 插件自带完整 WebUI 管理面板：既能像翻阅人物档案一样查看单个会话的关系侧写、互动节奏、语义投影和消息时间线，也能总览、搜索并独立启停全部已知会话；工程诊断默认收起，需要排障时再展开。
 
-当前版本为 `2.1.1`。新安装默认使用 `observe`，只记录、分析并生成预览；确认行为符合预期后再切换为 `active`，让关系上下文进入主模型请求。
+当前版本为 `2.1.2`。新安装默认使用 `observe`，只记录、分析并生成预览；确认行为符合预期后再切换为 `active`，让关系上下文进入主模型请求。
 
 ## 为什么另做 V2
 
@@ -47,7 +47,7 @@ V1 在多轮重构后已不再适合作为运行基线，因此本项目以独�
 | 可靠修复 | 具体承接、解释和改变能够软化姿态；两次独立行为确认后才清除未解决问题 | 泛泛道歉、低置信判断或一次性示好不会立即洗白 |
 | 正式关系 | 管理员可为人格绑定唯一正式窗口，允许更自然的关心、偏心和熟稔表达 | 正式身份不覆盖当前边界、未解决问题或其他窗口的普通投入 |
 | 分层观察 | 每两个完整来回轻分析一次，每六轮深分析一次，让变化既及时又不过度抖动 | 普通消息在主回复前不额外调用分析模型；模型只提交证据 |
-| 可选拒答联动 | 安装 polite_silence 后，私聊拒答时机由 Companion 状态机决定，群聊保留 polite_silence 原概率注入；polite_silence 只负责执行拒答 | 默认关闭；未安装或未开启时零影响 |
+| 可选拒答联动 | 安装 polite_silence 1.2.0+ 后，私聊拒答时机由 Companion 状态机决定，群聊保留 polite_silence 原概率注入；polite_silence 只负责执行拒答 | 默认关闭；未安装、版本过旧或未开启时零影响 |
 | 五维语义 | 将关系编译成 `投入 / 关系 / 处境 / 感受 / 表达`，主人格无需理解分数和内部标签 | 只改变本轮关系上下文，不接管主人格或保存用户事实 |
 | 完整 WebUI | 查看关系侧写、六轮节奏、语义预览、消息时间线和工程诊断，并总览管理全部会话 | 新安装默认仅观察；确认预览符合预期后再开启实际注入 |
 
@@ -114,11 +114,11 @@ data/plugin_data/astrbot_plugin_companion_lite_v2/
 
 | 插件 | 接入内容 | 启用与边界 |
 | --- | --- | --- |
-| [astrbot_plugin_polite_silence](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence) | 私聊维度：摘除其概率注入，由 Companion 状态机决定何时提示主模型输出 `<ignore>` 拒答；响应侧解析标签并记录拒答事件（累计次数 + 最近一次详情，时长按其实时配置夹取） | `bridge_polite_silence` 默认关闭；仅在 `active` 模式生效，未安装或 observe 模式整条链 no-op；不修改 polite_silence 配置，群聊与关闭陪伴的私聊保持其原概率注入 |
+| [astrbot_plugin_polite_silence](https://github.com/KitsuneiMomo/astrbot_plugin_polite_silence) 1.2.0+ | 通过正式字段关闭 polite_silence 的私聊概率注入，由 Companion 状态机决定何时提示主模型输出 `<ignore>` 拒答；响应侧解析标签并记录拒答事件（累计次数 + 最近一次详情，时长按其实时配置夹取） | `bridge_polite_silence` 默认关闭；仅在 `active` 模式生效，未安装、缺少 `trigger_percent_private` 或 observe 模式整条链 no-op；群聊概率保持不变 |
 
 状态机触发时机：`disengaged` 必注入；`guarded` 且存在边界、贬低或胁迫问题（`noticed / expressed`），或 `hold_boundary` 提醒生效时注入；修复期不注入。模型在回复中自主输出 `<ignore id="..." duration="..." />`，polite_silence 负责解析并执行沉默，Companion 同时记录拒答事件，对方在沉默结束后回来时一次性告知主模型沉默时长。
 
-桥接不修改 polite_silence 的任何配置：开启后只把私聊请求中 polite_silence 已注入的提示摘除（尾部精确匹配，失败时回退全串包含匹配），再按状态机决定是否注入 Companion 的拒答提示；群聊与关闭陪伴的私聊完全保持 polite_silence 的原概率注入。已向上游提交“私聊与群聊独立触发概率”的 feature request 与实现草案，合入后将切换为直接关闭私聊概率、摘除逻辑整体移除。
+桥接开启后会在运行时把 polite_silence 的 `trigger_percent_private` 置为 `0`，从源头关闭其全部私聊自动注入，再由 Companion 只为已启用的 UMO 按关系状态注入拒答提示；群聊继续使用原有 `trigger_percent`，不会被改动。关闭桥接或卸载 Companion 时会还原接管前的私聊概率；若接管期间用户手动改过该字段，则保留用户的新值。缺少 `trigger_percent_private` 时不启用桥接，避免两套私聊注入同时生效。
 
 拒答指令与恢复告知追加在 system_prompt 尾部，前缀（人格与固定协议）保持稳定，不影响无注入轮次的 prompt 缓存。也可以在调试页“启停管理 → 联动插件”中直接拨动开关，与 AstrBot 配置面板同源同步。
 

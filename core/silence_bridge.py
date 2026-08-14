@@ -8,6 +8,8 @@ from astrbot.api import logger
 from ..config import DEFAULT_SILENCE_IGNORE_PROMPT, SILENCE_RECOVERY_NOTICE
 
 POLITE_SILENCE_NAME = "astrbot_plugin_polite_silence"
+PRIVATE_TRIGGER_KEY = "trigger_percent_private"
+_UNSET = object()
 
 
 def _clean_sender_id(value: Any) -> str:
@@ -21,9 +23,10 @@ class SilenceBridgeController:
     IGNORE_TAG_RE = re.compile(r"<ignore\b([^>]*)>(.*?)</ignore>|<ignore\b([^>]*?)/>", re.DOTALL)
 
     def __init__(self, plugin) -> None:
-        """持有插件引用与桥接状态；未安装 polite_silence 时整条链 no-op。"""
+        """持有插件引用与私聊概率接管状态；未安装 polite_silence 时整条链 no-op。"""
         self.plugin = plugin
         self.instance = None
+        self.original_private_trigger: Any = _UNSET
         self.managed = False
 
     def resolve_polite_silence(self) -> Any:
@@ -44,20 +47,69 @@ class SilenceBridgeController:
             instance = getattr(metadata, "instance", None)
         return instance
 
-    async def sync(self) -> None:
-        """确认桥接接管状态；不再修改 polite_silence 的任何配置。"""
+    async def sync(self, force_restore: bool = False) -> None:
+        """通过上游正式私聊概率字段接管或还原 polite_silence。"""
         config = self.plugin.plugin_config
         want_managed = bool(config.bridge_polite_silence and config.active)
+        if force_restore:
+            want_managed = False
+
+        if self.managed:
+            if want_managed:
+                return
+            self._restore_private_trigger()
+            return
+        if not want_managed:
+            self.instance = None
+            return
+
         instance = self.resolve_polite_silence()
         config_obj = getattr(instance, "config", None)
-        if want_managed and instance is not None and config_obj is not None and hasattr(config_obj, "get"):
+        if instance is None or config_obj is None or not hasattr(config_obj, "get"):
+            logger.info("[CLV2] 桥接未接管：polite_silence 未注册或配置不可用")
+            return
+
+        original = config_obj.get(PRIVATE_TRIGGER_KEY, _UNSET)
+        if original is _UNSET:
+            logger.info("[CLV2] 桥接未接管：polite_silence 不支持 trigger_percent_private")
+            return
+        try:
+            config_obj[PRIVATE_TRIGGER_KEY] = 0
             self.instance = instance
+            self.original_private_trigger = original
             self.managed = True
-            logger.info("[CLV2] 桥接接管中：私聊拒答提示由 Companion 状态机决定")
-        else:
+            logger.info(
+                "[CLV2] 已接管 polite_silence 私聊拒答注入: trigger_percent_private=0"
+            )
+        except Exception:
+            logger.debug("[CLV2] polite_silence 私聊概率接管失败", exc_info=True)
+
+    def _restore_private_trigger(self) -> None:
+        """桥接退出时还原私聊概率；运行中被用户改过则保留用户的新值。"""
+        instance = self.instance or self.resolve_polite_silence()
+        config_obj = getattr(instance, "config", None)
+        original = self.original_private_trigger
+        try:
+            if config_obj is None or not hasattr(config_obj, "get") or original is _UNSET:
+                return
+            current = config_obj.get(PRIVATE_TRIGGER_KEY, _UNSET)
+            if current == 0:
+                config_obj[PRIVATE_TRIGGER_KEY] = original
+                logger.info(
+                    "[CLV2] 已还原 polite_silence trigger_percent_private=%s",
+                    original,
+                )
+            else:
+                logger.info(
+                    "[CLV2] polite_silence 私聊概率已被手动修改，保留当前值=%s",
+                    current,
+                )
+        except Exception:
+            logger.debug("[CLV2] polite_silence 私聊概率还原失败", exc_info=True)
+        finally:
             self.instance = None
+            self.original_private_trigger = _UNSET
             self.managed = False
-            logger.info("[CLV2] 桥接未接管：开关/模式不满足或 polite_silence 未注册")
 
     @staticmethod
     def should_inject_silence(state) -> bool:
@@ -102,46 +154,6 @@ class SilenceBridgeController:
         notice = template.format(sender_id=sender_id, minutes=minutes)
         current = str(getattr(req, "system_prompt", "") or "")
         req.system_prompt = f"{current}\n\n{notice}" if current else notice
-
-    def detach_polite_silence_prompt(self, event, req) -> bool:
-        """摘除 polite_silence 追加到 system_prompt 的注入文本，返回是否摘除。
-
-        先按尾部精确匹配（对应 polite_silence 原样追加的两种形态），失败时回退为
-        全串包含匹配，兜住其他插件在中间追加内容的情况。
-        """
-        instance = self.resolve_polite_silence()
-        config_obj = getattr(instance, "config", None)
-        if config_obj is None or not hasattr(config_obj, "get"):
-            return False
-        ignore_prompt = str(config_obj.get("ignore_prompt", "") or "").strip()
-        if not ignore_prompt:
-            return False
-        sender_id = str(event.get_sender_id() or "").strip()
-        if not sender_id:
-            return False
-        sender_name_getter = getattr(event, "get_sender_name", None)
-        sender_name = sender_name_getter() if callable(sender_name_getter) else sender_id
-        sender_name = sender_name or sender_id
-        context_hint = (
-            f"\n(系统级通知：当前正与你对话的用户昵称为 {sender_name}，ID为 {sender_id}，"
-            '若选择拒答请使用格式：<ignore id="' + sender_id + '" duration="分钟数" />)'
-        )
-        fragment = f"{ignore_prompt}{context_hint}"
-        current = str(getattr(req, "system_prompt", "") or "")
-        if not current:
-            return False
-        if current == fragment:
-            req.system_prompt = ""
-            return True
-        prefixed = f"\n{fragment}"
-        if current.endswith(prefixed):
-            req.system_prompt = current[: -len(prefixed)]
-            return True
-        if fragment in current:
-            req.system_prompt = current.replace(fragment, "").strip()
-            return True
-        logger.debug("[CLV2] 未找到 polite_silence 注入文本，跳过摘除")
-        return False
 
     def consume_recovery(self, state, event, req) -> bool:
         """拒答结束、对方回来时在 system_prompt 尾部一次性告知主模型沉默时长，并清除事件。"""

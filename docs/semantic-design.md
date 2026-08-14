@@ -145,10 +145,10 @@ Companion 不直接执行“不回应”，而是可选地与 `astrbot_plugin_po
 
 ### 接管与降级
 
-- `bridge_polite_silence` 开启且处于 `active` 时，插件只接管**打开陪伴的私聊**：在 polite_silence 注入之后，把追加到该系统 prompt 尾部的提示摘除（尾部精确匹配，失败时回退全串包含匹配，兜住其他插件在中间追加内容的情况），再由状态机决定是否注入 Companion 的拒答提示。
-- 桥接不修改 polite_silence 的任何配置：群聊与关闭陪伴的私聊完全保持 polite_silence 的原概率注入，面板里的 `trigger_percent` 等参数实时生效，关闭开关或卸载插件时也无需还原。
-- 未安装 polite_silence、`observe` 模式或开关关闭时整条链 no-op，不影响既有行为。
-- 已向上游提交“私聊与群聊独立触发概率”的 feature request 与实现草案：合入后 Companion 将切换为直接关闭私聊概率维度，摘除逻辑整体移除，私聊从源头不再被概率注入。
+- `bridge_polite_silence` 开启且处于 `active` 时，插件通过 polite_silence 1.2.0+ 的正式字段把 `trigger_percent_private` 在运行时置为 `0`，从源头关闭其私聊概率注入；Companion 再只为已启用的 UMO 按状态机决定是否注入拒答提示。
+- 群聊仍使用 polite_silence 的 `trigger_percent`，桥接不会修改它。桥接关闭或 Companion 卸载时还原接管前的私聊概率；若接管期间用户手动修改了 `trigger_percent_private`，退出时保留用户的新值。
+- 未安装 polite_silence、缺少 `trigger_percent_private`、`observe` 模式或开关关闭时整条链 no-op，不注入 Companion 拒答提示，也不记录桥接拒答事件。
+- 不再读取或匹配 polite_silence 的提示词原文、昵称和用户 ID 来摘除 system prompt 片段，桥接与上游提示文本格式解耦。
 
 ### 触发条件
 
