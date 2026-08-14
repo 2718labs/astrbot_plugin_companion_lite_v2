@@ -5,7 +5,7 @@
   <p>面向 AstrBot 私聊场景的轻量情感陪伴与关系演化插件。关系可以从陌生走向熟稔，也会因单向索取、冒犯或边界施压而冷却，并在可靠修复后逐步回暖。</p>
   <p>
     <a href="https://github.com/AstrBotDevs/AstrBot"><img src="https://img.shields.io/badge/AstrBot-Plugin-5B67F1?style=flat-square" alt="AstrBot Plugin" /></a>
-    <a href="https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2/releases"><img src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2F6TBWhite%2Fastrbot_plugin_companion_lite_v2%2Fmain%2Fmetadata.yaml&query=version&label=release&color=7357D9&style=flat-square" alt="Release" /></a>
+    <a href="https://github.com/2718labs/astrbot_plugin_companion_lite_v2/releases"><img src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2F2718labs%2Fastrbot_plugin_companion_lite_v2%2Fmain%2Fmetadata.yaml&query=version&label=release&color=7357D9&style=flat-square" alt="Release" /></a>
     <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2F855A?style=flat-square" alt="MIT License" /></a>
   </p>
@@ -61,12 +61,12 @@ V1 在多轮重构后已不再适合作为运行基线，因此本项目以独�
 
 ### 安装
 
-推荐在 AstrBot WebUI 的插件市场中搜索“陪伴Lite V2”并安装。若暂未检索到，可从 [GitHub Releases](https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2/releases) 下载 ZIP，然后在 AstrBot WebUI 中进入“插件 → 安装插件 → 从文件安装”并上传。
+推荐在 AstrBot WebUI 的插件市场中搜索“陪伴Lite V2”并安装。若暂未检索到，可从 [GitHub Releases](https://github.com/2718labs/astrbot_plugin_companion_lite_v2/releases) 下载 ZIP，然后在 AstrBot WebUI 中进入“插件 → 安装插件 → 从文件安装”并上传。
 
 也可以在支持仓库地址安装的界面中使用：
 
 ```text
-https://github.com/6TBWhite/astrbot_plugin_companion_lite_v2
+https://github.com/2718labs/astrbot_plugin_companion_lite_v2
 ```
 
 运行要求：
